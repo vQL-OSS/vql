@@ -1,0 +1,11 @@
+# local ignore files
+.DS_Store
+Thumbs.db
+
+# server
+bin/
+log/
+pkg/
+build/rpms/SOURCES/
+build/rpms/RPMS/
+dev/
