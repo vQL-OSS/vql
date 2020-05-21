@@ -1,3 +1,4 @@
+#!/bin/sh
 #  The MIT License
 #  Copyright (c) 2020 FurtherSystem Co.,Ltd.
 #
@@ -19,26 +20,17 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #  THE SOFTWARE.
 
-[Unit]
-Description=Virtual Queue Line Service
-Before=network-pre.target
-Wants=network-pre.target
+source `dirname $0`/common.env
 
-[Service]
-EnvironmentFile=-/etc/sysconfig/vqld.env
-Type=simple
-ExecStart=/usr/local/vqld/bin/vqld-boot.sh
-Restart=always
-RestartSec=90
-StartLimitBurst=3
-StartLimitInterval=600
-ExecReload=/bin/kill -HUP $MAINPID
-KillMode=process
-User=oruser
-Group=oruser
-LimitNOFILE=60000
-StandardOutput=syslog
-StandardError=syslog
+source ~/.bash_profile
+HOME_PATH=${HOME}
 
-[Install]
-WantedBy=multi-user.target
+yum install -y gcc
+yum install -y rpm-build
+
+curl https://dl.google.com/go/go1.13.8.linux-amd64.tar.gz | tar zx -C ~/
+echo export GO111MDULE=on >> ~/.bash_profile
+echo export GOPATH=~/go >> ~/.bash_profile
+echo 'export PATH=${PATH}:${GOPATH}/bin' >> ~/.bash_profile
+echo export PATH >> ~/.bash_profile
+source ~/.bash_profile

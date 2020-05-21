@@ -21,8 +21,8 @@
   THE SOFTWARE.
 */
 
-// Consumer side web api package
-package queue
+// Privilege access web api package
+package priv
 
 import (
 	"github.com/labstack/echo/v4"
@@ -30,14 +30,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"vql/internal/routes/vendor"
 )
 
-func TestSearch(t *testing.T) {
+// Drop(physics remove) vendor user test
+func TestDropVendor(t *testing.T) {
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/queue", nil)
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodDelete, "/priv/vendor", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	assert.NoError(t, Search(c))
+	assert.NoError(t, vendor.Create(c))
+	assert.NoError(t, DropVendor(c))
 }

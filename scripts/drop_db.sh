@@ -1,3 +1,4 @@
+#!/bin/sh
 #  The MIT License
 #  Copyright (c) 2020 FurtherSystem Co.,Ltd.
 #
@@ -19,26 +20,46 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #  THE SOFTWARE.
 
-[Unit]
-Description=Virtual Queue Line Service
-Before=network-pre.target
-Wants=network-pre.target
+DRYRUN=
+DBCLIENT=mysql
+DBADDR=localhost
+DBUSER=root
+DBPASS=
+DBPREFIX=default
+CREATE_USER=vql_user
+CREATE_PASS=
+CREATE_OPUSER=vql_opuser
+CREATE_OPPASS=
 
-[Service]
-EnvironmentFile=-/etc/sysconfig/vqld.env
-Type=simple
-ExecStart=/usr/local/vqld/bin/vqld-boot.sh
-Restart=always
-RestartSec=90
-StartLimitBurst=3
-StartLimitInterval=600
-ExecReload=/bin/kill -HUP $MAINPID
-KillMode=process
-User=oruser
-Group=oruser
-LimitNOFILE=60000
-StandardOutput=syslog
-StandardError=syslog
+NUM_START=0x00
+NUM_END=0x1f
 
-[Install]
-WantedBy=multi-user.target
+die(){
+  echo "$*"
+  exit 1
+}
+
+drop_db(){
+  query="drop database ${1};"
+  ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
+}
+
+drop_user(){
+  query="drop user ${1}@'%';"
+  ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
+}
+
+# main logics.
+drop_user ${CREATE_USER} || die "error drop user ${DROP_USER}"
+drop_user ${CREATE_OPUSER} || die "error drop user ${DROP_OPUSER}"
+drop_db ${DBPREFIX}_master || die "error drop db ${DBPREFIX}_master"
+
+for suffix in `seq -w ${NUM_START} ${NUM_END}`
+do
+  hex_suffix=`printf '%02x' ${suffix}`
+  drop_db ${DBPREFIX}_shard_${hex_suffix} || die "error drop db ${DBPREFIX}_shard_${hex_suffix}"
+done
+
+echo "remove ok"
+
+exit 0

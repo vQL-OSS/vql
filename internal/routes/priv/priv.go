@@ -21,23 +21,42 @@
   THE SOFTWARE.
 */
 
-// Consumer side web api package
-package queue
+// Privilege access web api package
+package priv
 
 import (
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
+	"log"
 	"net/http"
-	"net/http/httptest"
-	"testing"
+	"vql/internal/defs"
 )
 
-func TestSearch(t *testing.T) {
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/queue", nil)
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	assert.NoError(t, Search(c))
+// Drop(physics remove) vendor user
+func DropVendor(c echo.Context) error {
+	// TODO require SSO check is ok.
+	// save uuid
+	// TODO use connection pool
+	_, err := sqlx.Open("mysql", "vql_opuser:password@tcp(127.0.0.1:3306)/"+defs.DBMasterName())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	id := uint64(0)
+	shard, err := sqlx.Open("mysql", "vql_opuser:password@tcp(127.0.0.1:3306)/"+defs.DBShardName(id))
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// insert users
+	// commit
+	tx := shard.MustBegin()
+	tx.MustExec(defs.DropVendorQuery(id))
+	tx.MustExec(defs.DropQueueQuery(id))
+	// generate keycodes
+	tx.MustExec(defs.DropKeyCodeQuery(id))
+	tx.MustExec(defs.DropAuthQuery(id))
+	// commit
+	tx.Commit()
+	c.Echo().Logger.Debug("remove")
+	return c.String(http.StatusOK, "return master key here.")
 }
