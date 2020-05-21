@@ -21,13 +21,35 @@
   THE SOFTWARE.
 */
 
+// Consumer side web api package
 package queue
 
 import (
-	"net/http"
 	"github.com/labstack/echo/v4"
+	"net/http"
 )
 
-func SearchQueue(c echo.Context) error {
-	return c.String(http.StatusOK, "search queue")
+// Search for keycode in queue
+func Search(c echo.Context) error {
+	return c.String(http.StatusOK, "queue")
+}
+
+// Detail keycode status in queue
+func Detail(c echo.Context) error {
+	return c.String(http.StatusOK, "queue")
+}
+
+// Get keycode list in queue
+func Get(c echo.Context) error {
+	return c.String(http.StatusOK, "queue")
+}
+
+// Add keycode in queue
+func Add(c echo.Context) error {
+	return c.String(http.StatusOK, "queue")
+}
+
+// Update keycode in queue
+func Update(c echo.Context) error {
+	return c.String(http.StatusOK, "queue")
 }

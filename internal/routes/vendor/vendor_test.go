@@ -21,22 +21,25 @@
   THE SOFTWARE.
 */
 
-package manage
+// Vendor side web api package
+package vendor
 
 import (
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
+	"vql/internal/routes/priv"
 )
 
-func TestSearchManage(t *testing.T) {
+// Create vendor user test
+func TestCreate(t *testing.T) {
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/manage/queue", nil)
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/vendor", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	assert.NoError(t, SearchManage(c))
+	assert.NoError(t, Create(c))
+	assert.NoError(t, priv.DropVendor(c))
 }

@@ -7,6 +7,7 @@ Release:	0
 Summary:	vqld - Virtual Queue Line Service.
 Group:		Applications/Internet
 License:	MIT
+Vendor:		FurtherSystem Co.,Ltd.
 URL:		http://vqloss.info/
 Source0:	%{name}-%{version}-%{release}.x86_64.tar.gz
 Requires(pre,postun):  %{_sbindir}/groupadd
@@ -14,7 +15,7 @@ Requires(pre,postun):  %{_sbindir}/useradd
 Requires(pre,post,preun,postun):  %{_bindir}/systemctl
 
 %description
-vql
+vQLd ... virtual Queue Line Service.
 
 %global debug_package %{nil}
 
