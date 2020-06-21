@@ -25,22 +25,37 @@ package defs
 
 import (
 	"fmt"
+	"math"
+	"math/big"
 	"math/rand"
+	"net/url"
+	"io"
+	//"log"
+	srand "crypto/rand"
+	"encoding/json"
+        "encoding/base64"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"golang.org/x/crypto/sha3"
 )
 
 // Version
 var Version string
 
-const (
-	// Database prefix
-	DBPrefix = "default"
-	// Database master name
-	DBMaster = "master"
-	// Database shard name
-	DBShard = "shard"
-	// Database shard dividing counts
-	DBShardDivide = 32
-)
+var ServiceCode = 0
+
+var MagicKey = "KIWIKIWIKIWIKIWIKIWIKIWIKIWIKIWI"
+
+// Initialize Rand , if you need fixed seed for some test case, noFixedSeed = false
+func InitRand(noFixedSeed bool){
+	if noFixedSeed {
+		seed, _ := srand.Int(srand.Reader, big.NewInt(math.MaxInt64))
+		rand.Seed(seed.Int64())
+	} else {
+		rand.Seed(1) // use fixed seed for test.
+	}
+}
 
 // Create newguid - 16 bytes array
 func NewGuid() ([16]byte, error) {
@@ -57,130 +72,69 @@ func GuidFormatString(guid [16]byte) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", guid[0:4], guid[4:6], guid[6:8], guid[8:10], guid[10:])
 }
 
-// Resolve database master name
-func DBMasterName() string {
-	return DBPrefix + "_" + DBMaster
+// Create new vendor code (base64 encodded)
+func NewVendorCode() ([]byte, error) {
+	hash := sha3.New256()
+	guid, err := NewGuid()
+	if err != nil {
+		return nil, err
+	}
+	io.WriteString(hash, string(guid[:]))
+	return hash.Sum(nil), nil
 }
 
-// Resolve database shard name
-func DBShardName(num uint64) string {
-	return fmt.Sprintf("%s_%s_%02x", DBPrefix, DBShard, num%DBShardDivide)
+// Create new private code (base64 encodded)
+func NewPrivateCode() ([]byte, error) {
+	hash := sha3.New256()
+	guid, err := NewGuid()
+	if err != nil {
+		return nil, err
+	}
+	io.WriteString(hash, string(guid[:]))
+	return hash.Sum(nil), nil
 }
 
-// Create table vendor query string
-func CreateVendorQuery(suffix uint64) string {
-	query := `
-create table vendor_` + fmt.Sprintf("%016x", suffix) + ` (
-    id			bigint unsigned not null,
-    master_uuid		varchar(128) not null,
-    master_key		varchar(128) not null,
-    session_id		varchar(128) not null,
-    session_footprint	datetime not null,
-    queue_id		varchar(128) not null,
-    reset_count		smallint unsigned not null,
-    name		varchar(1024) not null,
-    first_code		varchar(3) not null,
-    last_code		varchar(3) not null,
-    total_wait		smallint unsigned not null,
-    total_in		smallint unsigned not null,
-    total_out		smallint unsigned not null,
-    maintenance		boolean not null,
-    caption		varchar(4096) not null,
-    delete_flag		tinyint unsigned not null,
-    create_at		datetime not null,
-    update_at		datetime not null,
-    primary key (id)
-) engine=innodb;`
-	return query
+// Create new session id (base64 encodded)
+func NewSession() ([]byte, error) {
+	hash := sha3.New256()
+	guid, err := NewGuid()
+	if err != nil {
+		return nil, err
+	}
+	io.WriteString(hash, string(guid[:]))
+	return hash.Sum(nil), nil
 }
 
-// Drop table vendor query string
-func DropVendorQuery(suffix uint64) string {
-	query := `
-drop table vendor_` + fmt.Sprintf("%016x", suffix) + `;`
-	return query
+func ToBase64(b []byte) string {
+	return base64.StdEncoding.EncodeToString(b)
 }
 
-// Create table queue query string
-func CreateQueueQuery(suffix uint64) string {
-	query := `
-create table queue_` + fmt.Sprintf("%016x", suffix) + ` (
-    id			bigint unsigned not null,
-    queue_id		varchar(128) not null,
-    keycode_prefix	varchar(3) not null,
-    keycode_suffix	varchar(128) not null,
-    session_id		varchar(128) not null,
-    session_footprint	datetime not null,
-    prev_code		varchar(3) not null,
-    next_code		varchar(3) not null,
-    mail		boolean not null,
-    mail_addr		varchar(1024) not null,
-    mail_count		smallint unsigned not null,
-    push		boolean not null,
-    push_type		tinyint unsigned not null,
-    push_count		smallint unsigned not null,
-    caption		varchar(1024) not null,
-    delete_flag		tinyint unsigned not null,
-    create_at		datetime not null,
-    update_at		datetime not null,
-    primary key (id),
-    unique (keycode_prefix),
-    unique (keycode_suffix)
-  ) engine=innodb;`
-	return query
+// Create hash
+func ToHash(b []byte) ([]byte, error) {
+	hash := sha3.New256()
+	io.WriteString(hash, string(b))
+	return hash.Sum(nil), nil
 }
 
-// Drop table queue query string
-func DropQueueQuery(suffix uint64) string {
-	query := `
-drop table queue_` + fmt.Sprintf("%016x", suffix) + `;`
-	return query
+func ToHmacSha256(msg, key string) string {
+    mac := hmac.New(sha256.New, []byte(key))
+    mac.Write([]byte(msg))
+    return hex.EncodeToString(mac.Sum(nil))
 }
 
-// Create table keycode query string
-func CreateKeyCodeQuery(suffix uint64) string {
-	query := `
-create table keycode_` + fmt.Sprintf("%016x", suffix) + ` (
-    id			bigint unsigned not null,
-    keycode_prefix	varchar(3) not null,
-    keycode_suffix	varchar(128) not null,
-    delete_flag		tinyint unsigned not null,
-    create_at		datetime not null,
-    update_at		datetime not null,
-    primary key (id),
-    unique (keycode_prefix),
-    unique (keycode_suffix)
-  ) engine=innodb;`
-	return query
-}
-
-// Drop table keycode query string
-func DropKeyCodeQuery(suffix uint64) string {
-	query := `
-drop table keycode_` + fmt.Sprintf("%016x", suffix) + `;`
-	return query
-}
-
-// Create table auth query string
-func CreateAuthQuery(suffix uint64) string {
-	query := `
-create table auth_` + fmt.Sprintf("%016x", suffix) + ` (
-    id			bigint unsigned not null,
-    privider_type	tinyint unsigned not null,
-    uuid		varchar(128) not null,
-    secret		varchar(128) not null,
-    delete_flag		tinyint unsigned not null,
-    create_at		datetime not null,
-    update_at		datetime not null,
-    primary key (id),
-    unique (uuid)
-  ) engine=innodb;`
-	return query
-}
-
-// Drop table auth query string
-func DropAuthQuery(suffix uint64) string {
-	query := `
-drop table auth_` + fmt.Sprintf("%016x", suffix) + `;`
-	return query
+// WebApi Payload Data Decode
+func Decode(encoded []byte, v interface{}) error {
+        urldecoded, err := url.QueryUnescape(string(encoded))
+	if err != nil { return err}
+        //log.Printf("base64 bytes: %x", []byte(urldecoded))
+        decoded, err := base64.StdEncoding.DecodeString(urldecoded)
+	if err != nil { return err}
+        //log.Printf("encrypted bytes: %x", []byte(decoded))
+        //var dest [256]byte
+        //cipher, err := camellia.New(traditionalKey)
+	//if err != nil { return err}
+        //cipher.Decrypt(dest[:], decoded)
+        //log.Printf("decoded bytes: %x", dest[:])
+        //log.Printf("data: %s", string(dest[:]))
+        return json.Unmarshal([]byte(decoded), v)
 }

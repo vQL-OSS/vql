@@ -29,6 +29,9 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"os"
 	"os/signal"
+	"log"
+	"vql/internal/defs"
+	"vql/internal/db"
 	"vql/internal/routes/priv"
 	"vql/internal/routes/queue"
 	"vql/internal/routes/vendor"
@@ -49,8 +52,19 @@ func param() {
 
 func main() {
 	param()
-	e := echo.New()
+	var err error
 
+	defs.InitRand(true)
+	err = db.Conns.Init()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = db.OpConns.Init()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 

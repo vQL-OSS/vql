@@ -21,28 +21,6 @@
   THE SOFTWARE.
 */
 
-// Vendor side web api package
-package vendor
+// Cache server cluster access package 
+package cache
 
-import (
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"vql/internal/routes/priv"
-	"vql/internal/db"
-)
-
-// Create vendor user test
-func TestCreate(t *testing.T) {
-	assert.NoError(t, db.Conns.Init())
-        assert.NoError(t, db.OpConns.Init())
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/vendor/new", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	assert.NoError(t, Create(c))
-	assert.NoError(t, priv.DropVendor(c))
-}

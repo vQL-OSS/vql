@@ -30,11 +30,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"vql/internal/db"
 	"vql/internal/routes/vendor"
 )
 
 // Drop(physics remove) vendor user test
 func TestDropVendor(t *testing.T) {
+	assert.NoError(t, db.Conns.Init())
+	assert.NoError(t, db.OpConns.Init())
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodDelete, "/priv/vendor", nil)
 	rec := httptest.NewRecorder()

@@ -26,35 +26,43 @@ package priv
 
 import (
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/jmoiron/sqlx"
+	//"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"log"
 	"net/http"
-	"vql/internal/defs"
+	"vql/internal/db"
 )
 
-// Drop(physics remove) vendor user
+// Drop(physics remove) vendor 
 func DropVendor(c echo.Context) error {
 	// TODO require SSO check is ok.
-	// save uuid
-	// TODO use connection pool
-	_, err := sqlx.Open("mysql", "vql_opuser:password@tcp(127.0.0.1:3306)/"+defs.DBMasterName())
-	if err != nil {
-		log.Fatalln(err)
-	}
-	id := uint64(0)
-	shard, err := sqlx.Open("mysql", "vql_opuser:password@tcp(127.0.0.1:3306)/"+defs.DBShardName(id))
-	if err != nil {
-		log.Fatalln(err)
-	}
-	// insert users
-	// commit
-	tx := shard.MustBegin()
-	tx.MustExec(defs.DropVendorQuery(id))
-	tx.MustExec(defs.DropQueueQuery(id))
+	master := db.OpConns.Master()
+	stmt, err := master.Preparex(`select * from domain where id = ?`)
+	domain := db.Domain{}
+        stmt.Exec(&domain, 1)
+        if err != nil { log.Fatalln(err) }
+        defer stmt.Close()
+	shard, err := db.OpConns.Shard(domain.Id)
+	if err != nil { log.Fatalln(err) }
+	tx, err := shard.Beginx()
+	if err != nil { log.Fatalln(err) }
+	stmt, err = tx.Preparex(db.DropVendorQuery(domain.Id))
+        if err != nil { log.Fatalln(err) }
+        defer stmt.Close()
+        stmt.Exec()
+	stmt, err = tx.Preparex(db.DropQueueQuery(domain.Id))
+        if err != nil { log.Fatalln(err) }
+        defer stmt.Close()
+        stmt.Exec()
 	// generate keycodes
-	tx.MustExec(defs.DropKeyCodeQuery(id))
-	tx.MustExec(defs.DropAuthQuery(id))
+	stmt, err = tx.Preparex(db.DropKeycodeQuery(domain.Id))
+        if err != nil { log.Fatalln(err) }
+        defer stmt.Close()
+        stmt.Exec()
+	stmt, err = tx.Preparex(db.DropAuthQuery(domain.Id))
+        if err != nil { log.Fatalln(err) }
+        defer stmt.Close()
+        stmt.Exec()
 	// commit
 	tx.Commit()
 	c.Echo().Logger.Debug("remove")
