@@ -25,162 +25,205 @@
 package vendor
 
 import (
+	"database/sql"
+	"encoding/base64"
+	"errors"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
-	"database/sql"
-	"log"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"strconv"
+	"time"
 	"vql/internal/db"
 	"vql/internal/defs"
-	"strconv"
-	"errors"
 )
 
 // Create vendor user request body struct
-type ReqBodyCreate struct {
-	IdentifierType	byte	`json:IdentifierType`
-	Identifier	string	`json:Identifier`
-	Seed		string	`json:Seed`
-	Name		string	`json:Name`
-	Caption		string	`json:Caption`
-	Ticks		int64	`json:Ticks`
+type RequestBodyCreate struct {
+	IdentifierType byte   `json:IdentifierType`
+	Identifier     string `json:Identifier`
+	Seed           string `json:Seed`
+	Name           string `json:Name`
+	Caption        string `json:Caption`
+	defs.MessageBodyBase
 }
+
 // Create vendor user response body struct
-type ResBodyCreate struct {
-	ResponseCode	int	`json:ResponseCode`
-	VendorId	uint64	`json:VendorId`
-	PublicCode	string	`json:PublicCode`
-	PrivateCode	string	`json:PrivateCode`
-	SessionId	string	`json:SessionId`
-	Ticks		int64	`json:Ticks`
+type ResponseBodyCreate struct {
+	VendorCode  string `json:VendorCode`
+	PublicCode  string `json:PublicCode`
+	PrivateCode string `json:PrivateCode`
+	SessionId   string `json:SessionId`
+	defs.ResponseBodyBase
 }
+
 // Create vendor
 func Create(c echo.Context) error {
 	var err error
-	// TODO require SSO check is ok.
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
-	reqBodyCreate := ReqBodyCreate{}
-	if err = defs.Decode(bodyBytes, &reqBodyCreate); err != nil { return err }
-	log.Printf("data: %v",reqBodyCreate)
+	request := RequestBodyCreate{}
+	response := ResponseBodyCreate{}
+	response.ResponseCode = defs.ResponseOk
+	response.VendorCode = ""
+	response.PrivateCode = ""
+	response.SessionId = ""
+	response.Ticks = time.Now().Unix()
+	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTicksInvalid, true, err))
+	}
+	if err = defs.Decode(bodyBytes, &request, ticks); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgEncodeInvalid, true, err))
+	}
+
+	// validate param
+	log.Printf("data: %v", request)
 	platformType := c.Request().Header.Get("Platform")
 	nonce := c.Request().Header.Get("Nonce")
-	// validate seed
-	baseSeed := defs.ToHmacSha256(reqBodyCreate.Identifier + platformType + strconv.FormatInt(reqBodyCreate.Ticks, 10) , defs.MagicKey)
-	verifySeed := defs.ToHmacSha256(baseSeed + nonce, defs.MagicKey)
-	log.Printf("seed : verifySeed -> %s : %s", reqBodyCreate.Seed, verifySeed)
-	if verifySeed != reqBodyCreate.Seed {
-		return errors.New("failed verify seed")
+	log.Printf("nonce: %v", nonce)
+	_, err = strconv.ParseInt(nonce, 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgNonceInvalid, true, err))
+	}
+
+	baseSeed := defs.ToHmacSha256(request.Identifier+platformType+strconv.FormatInt(request.Ticks, 10), defs.MagicKey)
+	verifySeed := defs.ToHmacSha256(baseSeed+nonce, defs.MagicKey)
+	log.Printf("seed : verifySeed -> %s : %s", request.Seed, verifySeed)
+	if verifySeed != request.Seed {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgSeedInvalid, true, errors.New("failed verify seed")))
 	}
 	log.Printf("success verify seed")
-	// save uuid
 	vendorCode, err := defs.NewVendorCode()
-	if err != nil { return err }
-	privateCode, err := defs.NewPrivateCode()
-	if err != nil { return err }
-	sessionId, err := defs.NewSession()
-	if err != nil { return err }
-	master := db.Conns.Master()
-
-	var tx1 *sqlx.Tx
-	var res sql.Result
-
-	if tx1, err = master.Beginx(); err != nil { return err }
-	// already exists? -> logon or recover response 
-	var stmt *sqlx.Stmt
-	if stmt, err = tx1.Preparex("insert into domain (service_code, vendor_code, shard, delete_flag, create_at, update_at) values (?, ?, ?, 0, utc_timestamp(), utc_timestamp())"); err != nil { return err }
-	defer stmt.Close()
-	if res, err = stmt.Exec(defs.ServiceCode, vendorCode, -1); err != nil {
-		return db.RollbackResolve(err, tx1)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
 	}
-	signedId, err := res.LastInsertId()
+	privateCode, err := defs.NewPrivateCode()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
+	}
+	sessionId, err := defs.NewSession()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
+	}
+
+	// save create vendor master tables
+	master := db.Conns.Master()
+	var tx1 *sqlx.Tx
+	var ressult sql.Result
+	if tx1, err = master.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, err))
+	}
+	// already exists? -> logon or recover response
+	// TODO seed exists check.
+	// TODO auth exists check.
+	var stmt *sqlx.Stmt
+	if stmt, err = tx1.Preparex("insert into domain (service_code, vendor_code, shard, delete_flag, create_at, update_at) values (?, ?, ?, 0, utc_timestamp(), utc_timestamp())"); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
+	defer stmt.Close()
+	if ressult, err = stmt.Exec(defs.ServiceCode, vendorCode, -1); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
+	}
+	signedId, err := ressult.LastInsertId()
 	vendorId := uint64(signedId)
 
 	if stmt, err = tx1.Preparex("insert into auth (id, identifier_type, platform_type, identifier, seed, secret, ticks, private_code, session_id, session_footprint, delete_flag, create_at, update_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, utc_timestamp(), 0, utc_timestamp(), utc_timestamp())"); err != nil {
-		return db.RollbackResolve(err, tx1)
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
 	}
-	if res, err = stmt.Exec(vendorId, reqBodyCreate.IdentifierType, platformType, reqBodyCreate.Identifier, reqBodyCreate.Seed, "", reqBodyCreate.Ticks, privateCode, sessionId); err != nil {
-		return db.RollbackResolve(err, tx1)
+	if ressult, err = stmt.Exec(vendorId, request.IdentifierType, platformType, request.Identifier, request.Seed, "", request.Ticks, privateCode, sessionId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
 	}
 	if err = tx1.Commit(); err != nil {
-		return db.RollbackResolve(err, tx1)
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
+	// create vendor shard tables.
 	shard, err := db.Conns.Shard(vendorId)
-	if err != nil { return err }
-	var tx2 *sqlx.Tx
-	if tx2, err = shard.Beginx(); err != nil { return err }
-	stmt, err = tx2.Preparex(db.CreateVendorQuery(vendorId))
-	if err != nil { return err }
-	_, err = stmt.Exec()
-	if err != nil { return err }
-	stmt, err = tx2.Preparex(db.CreateQueueQuery(vendorId))
-	if err != nil { return err }
-	_, err = stmt.Exec()
-	if err != nil { return err }
-	stmt, err = tx2.Preparex(db.CreateKeycodeQuery(vendorId))
-	if err != nil { return err }
-	_, err = stmt.Exec()
-	if err != nil { return err }
-	stmt, err = tx2.Preparex(db.CreateAuthQuery(vendorId))
-	if err != nil { return err }
-	_, err = stmt.Exec()
-	if err != nil { return err }
-	// update set vendor info 
-	if err != nil { return err }
-	stmt, err = tx2.Preparex(`insert into vendor_` + db.ToSuffix(vendorId) + ` (
-		id,
-		queue_id,
-		reset_count,
-		name,
-		first_code,
-		last_code,
-		total_wait,
-		total_in,
-		total_out,
-		maintenance,
-		caption, 
-		delete_flag,
-		create_at, 
-		update_at
-	) values (
-		?,
-		'',
-		0, 
-		?, 
-		'',
-		'',
-		0,
-		0,
-		0,
-		0,
-		?,
-		0,
-		utc_timestamp(),
-		utc_timestamp()
-	);`)
-	if err != nil { return err }
-	_, err = stmt.Exec(vendorId, reqBodyCreate.Name, reqBodyCreate.Caption)
-	if err != nil { return err }
-	// commit or rollback
-	if err := tx2.Commit(); err != nil {
-		return db.RollbackResolve(err, tx2)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgShardConnectFailed, true, err))
 	}
+	var tx2 *sqlx.Tx
+	if tx2, err = shard.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, err))
+	}
+	stmt, err = tx2.Preparex(db.CreateVendorQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
+	_, err = stmt.Exec()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	stmt, err = tx2.Preparex(db.CreateQueueQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	_, err = stmt.Exec()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	stmt, err = tx2.Preparex(db.CreateKeycodeQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	_, err = stmt.Exec()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	stmt, err = tx2.Preparex(db.CreateAuthQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
+	_, err = stmt.Exec()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	stmt, err = tx2.Preparex(`insert into vendor_` + db.ToSuffix(vendorId) + ` (
+		id, queue_id, reset_count, name, first_code,
+		last_code, total_wait, total_in, total_out, maintenance,
+		caption, delete_flag, create_at, update_at
+	) values (
+		?, '', 0, ?, '',
+		'', 0, 0, 0, 0,
+		?, 0, utc_timestamp(), utc_timestamp()
+	);`)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	_, err = stmt.Exec(vendorId, request.Name, request.Caption)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	if err := tx2.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx2)))
+	}
+
 	// update shard = -1 -> shard = proper_shard_num
 	assigned_shard := db.GetShardNum(vendorId)
 	stmt, err = master.Preparex("update domain set shard = ?, update_at = utc_timestamp() where id = ?")
-	if err != nil { return err }
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
 	_, err = stmt.Exec(assigned_shard, vendorId)
-	if err != nil { return err }
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
 	c.Echo().Logger.Debug("created")
-	return c.String(http.StatusOK, "return master key and session_id here." + defs.ToBase64(sessionId))
+	response.VendorCode = base64.StdEncoding.EncodeToString(vendorCode)
+	response.PrivateCode = base64.StdEncoding.EncodeToString(privateCode)
+	response.SessionId = base64.StdEncoding.EncodeToString(sessionId)
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
 // Logon vendor user request body struct
-type ReqBodyLogon struct { }
+type ReqBodyLogon struct{}
+
 // Logon vendor user response body struct
-type ResBodyLogon struct { }
+type ResBodyLogon struct{}
+
 // Logon vendor user
 func Logon(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -189,9 +232,11 @@ func Logon(c echo.Context) error {
 }
 
 // Update vendor user request body struct
-type ReqBodyUpdate struct { }
+type ReqBodyUpdate struct{}
+
 // Update vendor user response body struct
-type ResBodyUpdate struct { }
+type ResBodyUpdate struct{}
+
 // Update vendor user
 func Update(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -199,9 +244,11 @@ func Update(c echo.Context) error {
 }
 
 // Detail vendor user request body struct
-type ReqBodyDetail struct { }
+type ReqBodyDetail struct{}
+
 // Detail vendor user response body struct
-type ResBodyDetail struct { }
+type ResBodyDetail struct{}
+
 // Detail vendor user
 func Detail(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -209,9 +256,11 @@ func Detail(c echo.Context) error {
 }
 
 // Add OAuth vendor user request body struct
-type ReqBodyAddAuth struct { }
+type ReqBodyAddAuth struct{}
+
 // Add OAuth vendor user response body struct
-type ResBodyAddAuth struct { }
+type ResBodyAddAuth struct{}
+
 // Add OAuth vendor user
 func AddAuth(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -219,9 +268,11 @@ func AddAuth(c echo.Context) error {
 }
 
 // Update OAuth vendor user request body struct
-type ReqBodyUpdateAuth struct { }
+type ReqBodyUpdateAuth struct{}
+
 // Update OAuth vendor user response body struct
-type ResBodyUpdateAuth struct { }
+type ResBodyUpdateAuth struct{}
+
 // Update OAuth vendor user
 func UpdateAuth(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -229,9 +280,11 @@ func UpdateAuth(c echo.Context) error {
 }
 
 // Initialize queue vendor user request body struct
-type ReqBodyInitializeQueue struct { }
+type ReqBodyInitializeQueue struct{}
+
 // Initialize queue vendor user response body struct
-type ResBodyInitializeQueue struct { }
+type ResBodyInitializeQueue struct{}
+
 // Initialize queue vendor user
 func InitializeQueue(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -240,9 +293,11 @@ func InitializeQueue(c echo.Context) error {
 }
 
 // Show queue vendor user request body struct
-type ReqBodyShowQueue struct { }
+type ReqBodyShowQueue struct{}
+
 // Show queue vendor user response body struct
-type ResBodyShowQueue struct { }
+type ResBodyShowQueue struct{}
+
 // Show queue vendor user
 func ShowQueue(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -250,9 +305,11 @@ func ShowQueue(c echo.Context) error {
 }
 
 // Update queue vendor user request body struct
-type ReqBodyUpdateQueue struct { }
+type ReqBodyUpdateQueue struct{}
+
 // Update queue vendor user response body struct
-type ResBodyUpdateQueue struct { }
+type ResBodyUpdateQueue struct{}
+
 // Update queue vendor user
 func UpdateQueue(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -260,9 +317,11 @@ func UpdateQueue(c echo.Context) error {
 }
 
 // Logoff vendor user request body struct
-type ReqBodyLogoff struct { }
+type ReqBodyLogoff struct{}
+
 // Logoff vendor user response body struct
-type ResBodyLogoff struct { }
+type ResBodyLogoff struct{}
+
 // Logoff vendor user
 func Logoff(c echo.Context) error {
 	// TODO require SSO check is ok.
@@ -270,9 +329,11 @@ func Logoff(c echo.Context) error {
 }
 
 // Purge vendor user request body struct
-type ReqBodyPurge struct { }
+type ReqBodyPurge struct{}
+
 // Purge vendor user response body struct
-type ResBodyPurge struct { }
+type ResBodyPurge struct{}
+
 // Purge(logical remove) vendor user
 func Purge(c echo.Context) error {
 	// TODO require SSO check is ok.

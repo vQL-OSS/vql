@@ -1,3 +1,5 @@
+// +build release
+
 /*
   The MIT License
   Copyright (c) 2020 FurtherSystem Co.,Ltd.
@@ -21,5 +23,12 @@
   THE SOFTWARE.
 */
 
-// Cache server cluster access package
-package cache
+package defs
+
+const (
+	ProdMode      = false
+	ServiceCode   = 0
+	ServicePrefix = "default"
+	Version       = "1.0.0"
+	MagicKey      = "KIWIKIWIKIWIKIWIKIWIKIWIKIWIKIWI"
+)

@@ -1,3 +1,5 @@
+// +build !release
+
 /*
   The MIT License
   Copyright (c) 2020 FurtherSystem Co.,Ltd.
@@ -21,28 +23,10 @@
   THE SOFTWARE.
 */
 
-// Privilege access web api package
-package priv
+package defs
 
-import (
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"vql/internal/db"
-	"vql/internal/routes/vendor"
-)
-
-// Drop(physics remove) vendor user test
-func TestDropVendor(t *testing.T) {
-	assert.NoError(t, db.Conns.Init())
-	assert.NoError(t, db.OpConns.Init())
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodDelete, "/priv/vendor", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	assert.NoError(t, vendor.Create(c))
-	assert.NoError(t, DropVendor(c))
-}
+var ProdMode = false
+var ServiceCode = 0
+var ServicePrefix = "default"
+var Version = "1.0.0"
+var MagicKey = "KIWIKIWIKIWIKIWIKIWIKIWIKIWIKIWI"

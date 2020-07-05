@@ -29,13 +29,12 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"time"
+	"vql/internal/defs"
 )
 
 const (
 	// Database name
 	Name = "mysql"
-	// Database prefix
-	Prefix = "default"
 	// Database master name
 	Master = "master"
 	// Database shard name
@@ -76,10 +75,93 @@ type Conn struct {
 var Conns = Conn{user: DefaultUser, pass: DefaultPass}
 var OpConns = Conn{user: OperateUser, pass: OperatePass}
 
+// Setup
+func Setup() error {
+	master, err := sqlx.Open(Name, OperateUser+":"+OperatePass+"@tcp("+MasterAddr+":"+MasterPort+")/")
+	if err != nil {
+		return err
+	}
+	defer master.Close()
+	_, err = master.Exec(CreateDatabaseMaster())
+	if err != nil {
+		return err
+	}
+	_, err = master.Exec("use " + defs.ServicePrefix + "_" + Master)
+	if err != nil {
+		return err
+	}
+	//_, err = master.Exec(GrantNormal(defs.ServicePrefix + "_" + Master))
+	//if err != nil {
+	//	return err
+	//}
+	//_, err = master.Exec("flush privileges;")
+	//if err != nil {
+	//	return err
+	//}
+	tx, err := master.Beginx()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Preparex(CreateDomainQuery())
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec()
+	stmt, err = tx.Preparex(CreateVendorAuthQuery())
+	if err != nil {
+		return err
+	}
+	_, err = stmt.Exec()
+	err = tx.Commit()
+
+	for i := 0; i < ShardDivide; i++ {
+		shard, err := sqlx.Open(Name, OperateUser+":"+OperatePass+"@tcp("+ShardAddr+":"+ShardPort+")/")
+		if err != nil {
+			return err
+		}
+		defer shard.Close()
+		_, err = shard.Exec(CreateDatabaseShard(i))
+		if err != nil {
+			return err
+		}
+		_, err = shard.Exec("use " + fmt.Sprintf("%s_%s_%02x", defs.ServicePrefix, Shard, i))
+		//_, err = shard.Exec(GrantNormal(fmt.Sprintf("%s_%s_%02x", defs.ServicePrefix, Shard, i)))
+		//if err != nil {
+		//	return err
+		//}
+		//_, err = shard.Exec("flush privileges;")
+		//if err != nil {
+		//	return err
+		//}
+	}
+	return nil
+}
+
+// Teardown
+func Teardown() error {
+	master, err := sqlx.Open(Name, OperateUser+":"+OperatePass+"@tcp("+MasterAddr+":"+MasterPort+")/")
+	if err != nil {
+		return err
+	}
+	_, _ = master.Exec(DropDatabaseMaster())
+	defer master.Close()
+
+	for i := 0; i < ShardDivide; i++ {
+		shard, err := sqlx.Open(Name, OperateUser+":"+OperatePass+"@tcp("+ShardAddr+":"+ShardPort+")/")
+		if err != nil {
+			return err
+		}
+		defer shard.Close()
+		_, _ = shard.Exec(DropDatabaseShard(i))
+	}
+	return nil
+}
+
 // initialize all normal db connections
 func (d *Conn) Init() error {
 	var err error
-	d.master, err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+MasterAddr+":"+MasterPort+")/"+Prefix+"_"+Master)
+	d.master, err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+MasterAddr+":"+MasterPort+")/"+defs.ServicePrefix+"_"+Master)
 	if err != nil {
 		return err
 	}
@@ -88,7 +170,7 @@ func (d *Conn) Init() error {
 	d.master.SetConnMaxLifetime(ConnMaxLifetime)
 
 	for i, _ := range d.shard {
-		d.shard[i], err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+ShardAddr+":"+ShardPort+")/"+fmt.Sprintf("%s_%s_%02x", Prefix, Shard, i))
+		d.shard[i], err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+ShardAddr+":"+ShardPort+")/"+fmt.Sprintf("%s_%s_%02x", defs.ServicePrefix, Shard, i))
 		if err != nil {
 			return err
 		}
@@ -128,8 +210,42 @@ func RollbackResolve(err error, tx *sqlx.Tx) error {
 	return err
 }
 
+// Create database master
+func CreateDatabaseMaster() string {
+	query := `create database if not exists ` + defs.ServicePrefix + `_` + Master + ` default character set utf8;`
+	return query
+}
+
+// Drop database master
+func DropDatabaseMaster() string {
+	query := `drop database ` + defs.ServicePrefix + `_` + Master + `;`
+	return query
+}
+
+// Create database shard
+func CreateDatabaseShard(suffix int) string {
+	query := `create database if not exists ` + fmt.Sprintf("%s_%s_%02x", defs.ServicePrefix, Shard, suffix) + ` default character set utf8;`
+	return query
+}
+
+// Drop database shard
+func DropDatabaseShard(suffix int) string {
+	query := `drop database ` + defs.ServicePrefix + `_` + Shard + `_` + fmt.Sprintf("%02x", suffix) + `;`
+	return query
+}
+
+func GrantNormal(name string) string {
+	query := "grant create, create view, delete, index, insert, lock tables, select, update on " + name + ".* to " + DefaultUser + "@'%';"
+	return query
+}
+
+func GrantAll(name string) string {
+	query := "grant all privileges on " + name + ".* to " + OperateUser + "@'%';"
+	return query
+}
+
 // Create table master domain query string
-func CreateServiceQuery() string {
+func CreateDomainQuery() string {
 	query := `
 create table if not exists domain (
     id          	bigint unsigned not null auto_increment,
@@ -140,27 +256,25 @@ create table if not exists domain (
     create_at   datetime not null,
     update_at   datetime not null,
     primary key (id)
-    unique (vendor_code),
-    unique (private_code)
 ) engine=innodb;`
 	return query
 }
 
 // Drop table domain query string
-func DropServiceQuery() string {
+func DropDomainQuery() string {
 	query := `drop table domain;`
 	return query
 }
 
-// Service table adaptor struct
+// Domain table adaptor struct
 type Domain struct {
-	Id               uint64
-	ServiceCode      uint8     `db:service_code`
-	VendorCode       []byte    `db:vendor_code`
-	Shard            int16
-	DeleteFlag       uint8     `db:delete_flag`
-	CreateAt         time.Time `db:create_at`
-	UpdateAt         time.Time `db:update_at`
+	Id          uint64
+	ServiceCode uint8  `db:service_code`
+	VendorCode  []byte `db:vendor_code`
+	Shard       int16
+	DeleteFlag  uint8     `db:delete_flag`
+	CreateAt    time.Time `db:create_at`
+	UpdateAt    time.Time `db:update_at`
 }
 
 // Create table auth query string
@@ -168,8 +282,8 @@ func CreateVendorAuthQuery() string {
 	query := `
 create table auth (
     id			bigint unsigned not null,
-    platform_type	varchar(128) not null,
     identifier_type	tinyint unsigned not null,
+    platform_type	varchar(128) not null,
     identifier		varchar(128) not null,
     seed                varchar(128) not null,
     secret		varchar(128) not null,
@@ -278,22 +392,22 @@ drop table queue_` + ToSuffix(num) + `;`
 
 // Queue table adaptor struct
 type Queue struct {
-	Id               uint64
-	QueueId          string    `db:queue_id`
-	KeycodePrefix    string    `db:keycode_prefix`
-	KeycodeSuffix    string    `db:keycode_suffix`
-	PrevCode         string    `db:prev_code`
-	NextCode         string    `db:next_code`
-	Mail             bool
-	MailAddr         string `db:mail_addr`
-	MailCount        uint16 `db:mail_count`
-	Push             bool
-	PushType         uint8  `db:push_type`
-	PushCount        uint16 `db:push_count`
-	Caption          string
-	DeleteFlag       uint8     `db:delete_flag`
-	CreateAt         time.Time `db:create_at`
-	UpdateAt         time.Time `db:update_at`
+	Id            uint64
+	QueueId       string `db:queue_id`
+	KeycodePrefix string `db:keycode_prefix`
+	KeycodeSuffix string `db:keycode_suffix`
+	PrevCode      string `db:prev_code`
+	NextCode      string `db:next_code`
+	Mail          bool
+	MailAddr      string `db:mail_addr`
+	MailCount     uint16 `db:mail_count`
+	Push          bool
+	PushType      uint8  `db:push_type`
+	PushCount     uint16 `db:push_count`
+	Caption       string
+	DeleteFlag    uint8     `db:delete_flag`
+	CreateAt      time.Time `db:create_at`
+	UpdateAt      time.Time `db:update_at`
 }
 
 // Create table keycode query string
@@ -362,16 +476,16 @@ drop table auth_` + ToSuffix(num) + `;`
 
 // Auth table adaptor struct
 type Auth struct {
-	Id            uint64
-	PlatformType  string `db:platform_type`
-	IdentifierType uint8 `db:identifier_type`
-	Identifier    string
-	Seed          string
-	Secret        string
-	PrivateCode   []byte    `db:private_code`
-	SessionId     string    `db:session_id`
+	Id               uint64
+	PlatformType     string `db:platform_type`
+	IdentifierType   uint8  `db:identifier_type`
+	Identifier       string
+	Seed             string
+	Secret           string
+	PrivateCode      []byte    `db:private_code`
+	SessionId        string    `db:session_id`
 	SessionFootprint time.Time `db:session_footprint`
-	DeleteFlag    uint8     `db:delete_flag`
-	CreateAt      time.Time `db:create_at`
-	UpdateAt      time.Time `db:update_at`
+	DeleteFlag       uint8     `db:delete_flag`
+	CreateAt         time.Time `db:create_at`
+	UpdateAt         time.Time `db:update_at`
 }

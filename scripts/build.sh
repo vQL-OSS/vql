@@ -29,6 +29,7 @@ GOCC=go
 GOXC=gox
 GIT_COMMIT=$(git rev-parse --short HEAD)
 LD_FLAGS="-X vql/internal/defs.Version=${IMAGE_VERSION}.${IMAGE_RELEASENO} -X vql/internal/defs.Shorthash=${GIT_COMMIT} ${LD_FLAGS}"
+TAGS="release"
 export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 SOURCES_PATH=${REPO_ROOT_PATH}/build/rpms/SOURCES
 ORIGIN_SOURCES_PATH=${REPO_ROOT_PATH}/build/rpms/SOURCES/${IMAGE_FULLNAME}.tar.gz
@@ -39,6 +40,7 @@ RPMBUILD_ROOT_PATH=${HOME}/${RPMBUILD}/
 RPMBUILD_SOURCES_PATH=${HOME}/${RPMBUILD}/SOURCES/
 RPMBUILD_SPECS_PATH=${HOME}/${RPMBUILD}/SPECS/${IMAGE_FULLNAME}.spec
 RPMBUILD_RPMS_PATH=${HOME}/${RPMBUILD}/RPMS/${IMAGE_ARCH}/
+VERBOSE=$1
 
 #XC_ARCH=${XC_ARCH:-"386 amd64 arm"}
 #XC_OS=${XC_OS:-linux darwin windows freebsd openbsd solaris}
@@ -58,11 +60,11 @@ rm -rf ${HOME}/${RPMBUILD}/SOURCES/*.tar.gz
 rm -rf ${HOME}/${RPMBUILD}/RPMS/${IMAGE_ARCH}
 
 # preprocess here.
-echo ${GOCC} test -v ./... 
-${GOCC} test -v ./...
+echo ${GOCC} test ${VERBOSE} ./... 
+${GOCC} test ${VERBOSE} ./...
 
-echo ${GOCC} build -o ${REPO_ROOT_PATH}/bin/${IMAGE_NAME_MAIN} -ldflags \"${LD_FLAGS}\" ${ENTRY_POINT_MAIN}
-${GOCC} build -o ${REPO_ROOT_PATH}/bin/${IMAGE_NAME_MAIN} -ldflags "${LD_FLAGS}" ${ENTRY_POINT_MAIN}
+echo ${GOCC} build -o ${REPO_ROOT_PATH}/bin/${IMAGE_NAME_MAIN} -ldflags \"${LD_FLAGS}\" -tags ${TAGS} ${ENTRY_POINT_MAIN}
+${GOCC} build -o ${REPO_ROOT_PATH}/bin/${IMAGE_NAME_MAIN} -ldflags "${LD_FLAGS}" -tags ${TAGS} ${ENTRY_POINT_MAIN}
 
 mkdir -p ${SOURCES_PATH}/${IMAGE_FULLNAME}
 cp ${REPO_ROOT_PATH}/bin/${IMAGE_NAME_MAIN} ${SOURCES_PATH}/${IMAGE_FULLNAME}/
@@ -72,7 +74,7 @@ cp ${REPO_ROOT_PATH}/configs/${IMAGE_NAME_MAIN}.env ${SOURCES_PATH}/${IMAGE_FULL
 cp ${REPO_ROOT_PATH}/LICENSE ${SOURCES_PATH}/${IMAGE_FULLNAME}/
 
 cd ${SOURCES_PATH}
-tar zcvf ${IMAGE_FULLNAME}.tar.gz ${IMAGE_FULLNAME}
+tar zcf ${IMAGE_FULLNAME}.tar.gz ${IMAGE_FULLNAME}
 cd -
 
 cd ${REPO_ROOT_PATH}

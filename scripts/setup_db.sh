@@ -25,11 +25,13 @@ DBCLIENT=mysql
 DBADDR=localhost
 DBUSER=root
 DBPASS=
-DBPREFIX=default
+DBPREFIX=${1:-default}
+GOTESTPREFIX=gotest
 CREATE_USER=vql_user
 CREATE_PASS=
 CREATE_OPUSER=vql_opuser
 CREATE_OPPASS=
+PRODUCTION=${2:-0}
 
 NUM_START=0x00
 NUM_END=0x1f
@@ -44,10 +46,12 @@ create_db(){
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
 }
 
-create_table_users(){
-  query="use ${1};create table if not exists users (
+create_table_domain(){
+  query="use ${1};create table if not exists domain (
     id	 	bigint unsigned not null auto_increment,
-    shard 	smallint unsigned not null,
+    service_code        tinyint unsigned not null,
+    vendor_code         varbinary(256) not null,
+    shard 	smallint not null,
     delete_flag tinyint unsigned not null,
     create_at 	datetime not null,
     update_at 	datetime not null,
@@ -57,8 +61,29 @@ create_table_users(){
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
 }
 
+create_table_vendor_auth(){
+  query="use ${1};create table if not exists auth (
+    id                  bigint unsigned not null,
+    identifier_type     tinyint unsigned not null,
+    platform_type       varchar(128) not null,
+    identifier          varchar(128) not null,
+    seed                varchar(128) not null,
+    secret              varchar(128) not null,
+    ticks               bigint unsigned not null,
+    private_code        varbinary(256) not null,
+    session_id          varbinary(256) not null,
+    session_footprint   datetime not null,
+    delete_flag         tinyint unsigned not null,
+    create_at           datetime not null,
+    update_at           datetime not null,
+    unique (identifier, seed)
+  ) engine=innodb;
+"
+  ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
+}
+
 create_user(){
-  query="create user if not exists ${1}@'%' identified by \"${2}\";"
+  query="create user ${1}@'%' identified by \"${2}\";"
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
 }
 
@@ -83,7 +108,12 @@ create_user ${CREATE_OPUSER} ${CREATE_OPPASS} || die "error create user ${CREATE
 create_db ${DBPREFIX}_master || die "error create db ${DBPREFIX}_master"
 grant_normal_db ${DBPREFIX}_master ${CREATE_USER} || die "error grant normal db ${DBPREFIX}_master"
 grant_all_db ${DBPREFIX}_master ${CREATE_OPUSER} || die "error grant all db ${DBPREFIX}_master"
-create_table_users ${DBPREFIX}_master || die "erro create table users ${DBPREFIX}_master"
+if [ "x${PRODUCTION}" = "x0" ];then
+  grant_normal_db ${GOTESTPREFIX}_master ${CREATE_USER} || die "error grant normal db ${GOTESTPREFIX}_master"
+  grant_all_db ${GOTESTPREFIX}_master ${CREATE_OPUSER} || die "error grant all db ${GOTESTPREFIX}_master"
+fi
+#create_table_domain ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
+#create_table_vendor_auth ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
 
 for suffix in `seq -w ${NUM_START} ${NUM_END}`
 do
@@ -91,6 +121,10 @@ do
   create_db ${DBPREFIX}_shard_${hex_suffix} ${CREATE_USER} || die "error create db ${DBPREFIX}_shard_${hex_suffix}"
   grant_normal_db ${DBPREFIX}_shard_${hex_suffix} ${CREATE_USER} || die "error grant normal db ${DBPREFIX}_shard_${hex_suffix}"
   grant_all_db ${DBPREFIX}_shard_${hex_suffix} ${CREATE_OPUSER} || die "error grant all db ${DBPREFIX}_shard_${hex_suffix}"
+  if [ "x${PRODUCTION}" = "x0" ];then
+    grant_normal_db ${GOTESTPREFIX}_shard_${hex_suffix} ${CREATE_USER} || die "error grant normal db ${GOTESTPREFIX}_shard_${hex_suffix}"
+    grant_all_db ${GOTESTPREFIX}_shard_${hex_suffix} ${CREATE_OPUSER} || die "error grant all db ${GOTESTPREFIX}_shard_${hex_suffix}"
+  fi
 done
 
 echo "setup ok"

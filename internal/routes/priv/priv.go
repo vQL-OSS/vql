@@ -28,43 +28,57 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	//"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
-	"log"
 	"net/http"
 	"vql/internal/db"
 )
 
-// Drop(physics remove) vendor 
+// Drop(physics remove) vendor
 func DropVendor(c echo.Context) error {
 	// TODO require SSO check is ok.
 	master := db.OpConns.Master()
 	stmt, err := master.Preparex(`select * from domain where id = ?`)
 	domain := db.Domain{}
-        stmt.Exec(&domain, 1)
-        if err != nil { log.Fatalln(err) }
-        defer stmt.Close()
+	paramId := 1
+	stmt.Exec(&domain, paramId)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
 	shard, err := db.OpConns.Shard(domain.Id)
-	if err != nil { log.Fatalln(err) }
+	if err != nil {
+		return err
+	}
 	tx, err := shard.Beginx()
-	if err != nil { log.Fatalln(err) }
+	if err != nil {
+		return err
+	}
 	stmt, err = tx.Preparex(db.DropVendorQuery(domain.Id))
-        if err != nil { log.Fatalln(err) }
-        defer stmt.Close()
-        stmt.Exec()
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	stmt.Exec()
 	stmt, err = tx.Preparex(db.DropQueueQuery(domain.Id))
-        if err != nil { log.Fatalln(err) }
-        defer stmt.Close()
-        stmt.Exec()
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	stmt.Exec()
 	// generate keycodes
 	stmt, err = tx.Preparex(db.DropKeycodeQuery(domain.Id))
-        if err != nil { log.Fatalln(err) }
-        defer stmt.Close()
-        stmt.Exec()
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	stmt.Exec()
 	stmt, err = tx.Preparex(db.DropAuthQuery(domain.Id))
-        if err != nil { log.Fatalln(err) }
-        defer stmt.Close()
-        stmt.Exec()
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	stmt.Exec()
 	// commit
 	tx.Commit()
-	c.Echo().Logger.Debug("remove")
+	c.Echo().Logger.Debug("removed")
 	return c.String(http.StatusOK, "return master key here.")
 }
