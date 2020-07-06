@@ -27,7 +27,21 @@ package queue
 import (
 	"github.com/labstack/echo/v4"
 	"net/http"
+	"fmt"
 )
+
+// middleware function just to output message
+func Middleware(name string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			defer fmt.Printf("middleware-%s: defer\n", name)
+			fmt.Printf("middleware-%s: before\n", name)
+			err := next(c)
+			fmt.Printf("middleware-%s: after\n", name)
+			return err
+		}
+	}
+}
 
 // Search for keycode in queue
 func Search(c echo.Context) error {

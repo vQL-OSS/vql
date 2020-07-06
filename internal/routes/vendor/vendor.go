@@ -27,6 +27,7 @@ package vendor
 import (
 	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"errors"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -39,6 +40,19 @@ import (
 	"vql/internal/db"
 	"vql/internal/defs"
 )
+
+// middleware function just to output message
+func Middleware(name string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			defer fmt.Printf("middleware-%s: defer\n", name)
+			fmt.Printf("middleware-%s: before\n", name)
+			err := next(c)
+			fmt.Printf("middleware-%s: after\n", name)
+			return err
+		}
+	}
+}
 
 // Create vendor user request body struct
 type RequestBodyCreate struct {

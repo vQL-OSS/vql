@@ -81,7 +81,7 @@ cd ${REPO_ROOT_PATH}
 
 cp ${ORIGIN_SOURCES_PATH} ${RPMBUILD_SOURCES_PATH} || die "${ORIGIN_SPECS_PATH} ${RPMBUILD_SOURCES_PATH} copy failed"
 cp ${ORIGIN_SPECS_PATH} ${RPMBUILD_SPECS_PATH} || die "${ORIGIN_SPECS_PATH} ${RPMBUILD_SPECS_PATH} copy failed"
-${RPMBUILD} -bb --clean ${RPMBUILD_SPECS_PATH} || die "rpmbuild failed"
+${RPMBUILD} -bb --clean --quiet ${RPMBUILD_SPECS_PATH} || die "rpmbuild failed"
 
 mkdir -p ${ORIGIN_RPMS_PATH}/ || die "mkdir failed"
 cp ${RPMBUILD_RPMS_PATH}/${IMAGE_FULLNAME}.rpm ${ORIGIN_RPMS_PATH}/ || die "copy failed"
