@@ -82,7 +82,7 @@ func main() {
 	vg.POST("/vendor/off/:id", vendor.Logoff)
 
 	vq := e.Group("/queue", queue.Middleware("queue"))
-	vq.GET("/queue/new", queue.Create)
+	vq.POST("/queue/new", queue.Create)
 	vq.GET("/queue/search/:id", queue.Search)
 	vq.GET("/queue/detail/:id", queue.Detail)
 	vq.GET("/queue/:id", queue.Get)
