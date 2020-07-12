@@ -25,10 +25,7 @@
 package vendor
 
 import (
-	"database/sql"
 	"encoding/base64"
-	"fmt"
-	"errors"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
@@ -45,44 +42,41 @@ import (
 func Middleware(name string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			defer fmt.Printf("middleware-%s: defer\n", name)
-			fmt.Printf("middleware-%s: before\n", name)
+			master := db.Conns.Master()
+			var count int
+			if err := master.Get(&count, "select count(1) from auth where session_id = ?", "Session"); err != nil {
+				log.Print(err)
+			}
+			if count == 0 {
+				return c.String(http.StatusInternalServerError, "")
+			}
 			err := next(c)
-			fmt.Printf("middleware-%s: after\n", name)
 			return err
 		}
 	}
 }
 
-// Create vendor user request body struct
-type RequestBodyCreate struct {
-	IdentifierType byte   `json:IdentifierType`
-	Identifier     string `json:Identifier`
-	Seed           string `json:Seed`
+// Upgrade vendor user request body struct
+type RequestBodyUpgrade struct {
 	Name           string `json:Name`
 	Caption        string `json:Caption`
 	defs.MessageBodyBase
 }
 
-// Create vendor user response body struct
-type ResponseBodyCreate struct {
+// Upgrade vendor user response body struct
+type ResponseBodyUpgrade struct {
 	VendorCode  string `json:VendorCode`
-	PublicCode  string `json:PublicCode`
-	PrivateCode string `json:PrivateCode`
-	SessionId   string `json:SessionId`
 	defs.ResponseBodyBase
 }
 
-// Create vendor
-func Create(c echo.Context) error {
+// Upgrade vendor
+func Upgrade(c echo.Context) error {
 	var err error
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
-	request := RequestBodyCreate{}
-	response := ResponseBodyCreate{}
+	request := RequestBodyUpgrade{}
+	response := ResponseBodyUpgrade{}
 	response.ResponseCode = defs.ResponseOk
 	response.VendorCode = ""
-	response.PrivateCode = ""
-	response.SessionId = ""
 	response.Ticks = time.Now().Unix()
 	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
 	if err != nil {
@@ -94,7 +88,6 @@ func Create(c echo.Context) error {
 
 	// validate param
 	log.Printf("data: %v", request)
-	platformType := c.Request().Header.Get("Platform")
 	nonce := c.Request().Header.Get("Nonce")
 	log.Printf("nonce: %v", nonce)
 	_, err = strconv.ParseInt(nonce, 10, 64)
@@ -102,22 +95,7 @@ func Create(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgNonceInvalid, true, err))
 	}
 
-	baseSeed := defs.ToHmacSha256(request.Identifier+platformType+strconv.FormatInt(request.Ticks, 10), defs.MagicKey)
-	verifySeed := defs.ToHmacSha256(baseSeed+nonce, defs.MagicKey)
-	log.Printf("seed : verifySeed -> %s : %s", request.Seed, verifySeed)
-	if verifySeed != request.Seed {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgSeedInvalid, true, errors.New("failed verify seed")))
-	}
-	log.Printf("success verify seed")
 	vendorCode, err := defs.NewVendorCode()
-	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
-	}
-	privateCode, err := defs.NewPrivateCode()
-	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
-	}
-	sessionId, err := defs.NewSession()
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
 	}
@@ -125,7 +103,6 @@ func Create(c echo.Context) error {
 	// save create vendor master tables
 	master := db.Conns.Master()
 	var tx1 *sqlx.Tx
-	var ressult sql.Result
 	if tx1, err = master.Beginx(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, err))
 	}
@@ -133,23 +110,22 @@ func Create(c echo.Context) error {
 	// TODO seed exists check.
 	// TODO auth exists check.
 	var stmt *sqlx.Stmt
-	if stmt, err = tx1.Preparex("insert into domain (service_code, vendor_code, shard, delete_flag, create_at, update_at) values (?, ?, ?, 0, utc_timestamp(), utc_timestamp())"); err != nil {
+	var vendorId uint64
+	if stmt, err = tx1.Preparex("select id from auth where session_id = ?"); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 	defer stmt.Close()
-	if ressult, err = stmt.Exec(defs.ServiceCode, vendorCode, -1); err != nil {
+	if err := stmt.Get(&vendorId, "select id from auth where session_id = ?", request.SessionId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
+	if stmt, err = tx1.Preparex("update domain d set vendor_code = ?, update_at = utc_timestamp() where id = ?)"); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
+	defer stmt.Close()
+	if _, err = stmt.Exec(vendorCode, vendorId); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
 	}
-	signedId, err := ressult.LastInsertId()
-	vendorId := uint64(signedId)
-
-	if stmt, err = tx1.Preparex("insert into auth (id, identifier_type, platform_type, identifier, seed, secret, ticks, private_code, session_id, session_footprint, delete_flag, create_at, update_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, utc_timestamp(), 0, utc_timestamp(), utc_timestamp())"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if ressult, err = stmt.Exec(vendorId, request.IdentifierType, platformType, request.Identifier, request.Seed, "", request.Ticks, privateCode, sessionId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if err = tx1.Commit(); err != nil {
+	if err := tx1.Commit(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
@@ -227,8 +203,6 @@ func Create(c echo.Context) error {
 	}
 	c.Echo().Logger.Debug("created")
 	response.VendorCode = base64.StdEncoding.EncodeToString(vendorCode)
-	response.PrivateCode = base64.StdEncoding.EncodeToString(privateCode)
-	response.SessionId = base64.StdEncoding.EncodeToString(sessionId)
 	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 

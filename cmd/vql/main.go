@@ -68,7 +68,7 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	e.POST("/vendor/new", vendor.Create)
+	e.POST("/vendor/new", vendor.Upgrade)
 	vg := e.Group("/vendor/on", vendor.Middleware("vendor"))
 	vg.POST("/vendor/on/:id", vendor.Logon)
 	vg.PUT("/vendor/on/:id", vendor.Update)
@@ -82,6 +82,7 @@ func main() {
 	vg.POST("/vendor/off/:id", vendor.Logoff)
 
 	vq := e.Group("/queue", queue.Middleware("queue"))
+	vq.GET("/queue/new", queue.Create)
 	vq.GET("/queue/search/:id", queue.Search)
 	vq.GET("/queue/detail/:id", queue.Detail)
 	vq.GET("/queue/:id", queue.Get)

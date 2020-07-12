@@ -30,30 +30,30 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"io/ioutil"
 	"strings"
 	"testing"
 	"vql/internal/defs"
 	"vql/internal/db"
 	"vql/internal/routes/priv"
+	"vql/internal/routes/queue"
 )
 
-// Create vendor user test
-func TestCreate(t *testing.T) {
+// Upgrade vendor user test
+func TestUpgrade(t *testing.T) {
 	defs.ServicePrefix = "gotest"
 	assert.NoError(t, db.Setup())
 	assert.NoError(t, db.Conns.Init())
 	assert.NoError(t, db.OpConns.Init())
 	e := echo.New()
-	reqBody := RequestBodyCreate{}
-	reqBody.IdentifierType = 0
-	reqBody.Identifier = "57ea5c1f17211a2c384a05030a88fcace73d9d92bd1c714da5c68ede09847304"
-	reqBody.Seed = "9c463571a92614f5ed8ff55c249e7b8c458860e030284d2b5bcc7a529ac58741"
-	reqBody.Name = "vendor sample"
-	reqBody.Caption = "caption sample"
-	reqBody.Ticks = 1592619000
-	base64Encoded := defs.Encode(reqBody, reqBody.Ticks)
+	reqCreate := queue.RequestBodyCreate{}
+	reqCreate.IdentifierType = 0
+	reqCreate.Identifier = "57ea5c1f17211a2c384a05030a88fcace73d9d92bd1c714da5c68ede09847304"
+	reqCreate.Seed = "9c463571a92614f5ed8ff55c249e7b8c458860e030284d2b5bcc7a529ac58741"
+	reqCreate.Ticks = 1592619000
+	base64Encoded := defs.Encode(reqCreate, reqCreate.Ticks)
 	urlEncoded := url.QueryEscape(base64Encoded)
-	req := httptest.NewRequest(http.MethodPost, "/vendor/new", strings.NewReader(urlEncoded))
+	req := httptest.NewRequest(http.MethodPost, "/queue/new", strings.NewReader(urlEncoded))
 	rec := httptest.NewRecorder()
 	req.Header.Set("User-Agent", "vQL-Client")
 	req.Header.Set("Platform", "Windows")
@@ -61,7 +61,28 @@ func TestCreate(t *testing.T) {
 	req.Header.Set("Nonce", "637295289927929882")
 	c := e.NewContext(req, rec)
 
-	assert.NoError(t, Create(c))
+	assert.NoError(t, queue.Create(c))
+
+	resCreate := queue.ResponseBodyCreate{}
+	bodyBytes, _ := ioutil.ReadAll(rec.Body)
+	defs.Decode(bodyBytes, &resCreate, resCreate.Ticks);
+
+	reqUpgrade := RequestBodyUpgrade{}
+	reqUpgrade.SessionId = resCreate.SessionId
+	reqUpgrade.Name = "vendor sample"
+	reqUpgrade.Caption = "caption sample"
+	reqUpgrade.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpgrade, reqUpgrade.Ticks)
+	urlEncoded = url.QueryEscape(base64Encoded)
+	req = httptest.NewRequest(http.MethodPost, "/vendor/new", strings.NewReader(urlEncoded))
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	c = e.NewContext(req, rec)
+
+	assert.NoError(t, Upgrade(c))
 	assert.NoError(t, priv.DropVendor(c))
 	assert.NoError(t, db.Teardown())
 }

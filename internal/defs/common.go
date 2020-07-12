@@ -273,6 +273,7 @@ func Encode(v interface{}, t int64) string {
 
 // request body base struct
 type MessageBodyBase struct {
+	SessionId string `json:SessionId`
 	Ticks int64 `json:Ticks`
 }
 

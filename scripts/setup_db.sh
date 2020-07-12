@@ -112,8 +112,8 @@ if [ "x${PRODUCTION}" = "x0" ];then
   grant_normal_db ${GOTESTPREFIX}_master ${CREATE_USER} || die "error grant normal db ${GOTESTPREFIX}_master"
   grant_all_db ${GOTESTPREFIX}_master ${CREATE_OPUSER} || die "error grant all db ${GOTESTPREFIX}_master"
 fi
-#create_table_domain ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
-#create_table_vendor_auth ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
+create_table_domain ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
+create_table_vendor_auth ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
 
 for suffix in `seq -w ${NUM_START} ${NUM_END}`
 do
