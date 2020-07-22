@@ -53,7 +53,7 @@ func TestUpgrade(t *testing.T) {
 	reqCreate.Ticks = 1592619000
 	base64Encoded := defs.Encode(reqCreate, reqCreate.Ticks)
 	urlEncoded := url.QueryEscape(base64Encoded)
-	req := httptest.NewRequest(http.MethodPost, "/queue/new", strings.NewReader(urlEncoded))
+	req := httptest.NewRequest(http.MethodPost, "/new", strings.NewReader(urlEncoded))
 	rec := httptest.NewRecorder()
 	req.Header.Set("User-Agent", "vQL-Client")
 	req.Header.Set("Platform", "Windows")
@@ -74,7 +74,7 @@ func TestUpgrade(t *testing.T) {
 	reqUpgrade.Ticks = 1592619000
 	base64Encoded = defs.Encode(reqUpgrade, reqUpgrade.Ticks)
 	urlEncoded = url.QueryEscape(base64Encoded)
-	req = httptest.NewRequest(http.MethodPost, "/vendor/new", strings.NewReader(urlEncoded))
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/upgrade", strings.NewReader(urlEncoded))
 	rec = httptest.NewRecorder()
 	req.Header.Set("User-Agent", "vQL-Client")
 	req.Header.Set("Platform", "Windows")

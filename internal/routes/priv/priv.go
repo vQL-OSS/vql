@@ -66,7 +66,7 @@ func DropVendor(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	stmt, err = tx.Preparex(db.DropVendorQuery(domain.Id))
+	stmt, err = tx.Preparex(db.DropSummaryQuery(domain.Id))
 	if err != nil {
 		return err
 	}

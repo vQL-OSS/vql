@@ -26,6 +26,7 @@ package vendor
 
 import (
 	"encoding/base64"
+	"errors"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
@@ -38,26 +39,9 @@ import (
 	"vql/internal/defs"
 )
 
-// middleware function just to output message
-func Middleware(name string) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			master := db.Conns.Master()
-			var count int
-			if err := master.Get(&count, "select count(1) from auth where session_id = ?", "Session"); err != nil {
-				log.Print(err)
-			}
-			if count == 0 {
-				return c.String(http.StatusInternalServerError, "")
-			}
-			err := next(c)
-			return err
-		}
-	}
-}
-
 // Upgrade vendor user request body struct
 type RequestBodyUpgrade struct {
+	SessionId      string `json:SessionId`
 	Name           string `json:Name`
 	Caption        string `json:Caption`
 	defs.MessageBodyBase
@@ -111,14 +95,30 @@ func Upgrade(c echo.Context) error {
 	// TODO auth exists check.
 	var stmt *sqlx.Stmt
 	var vendorId uint64
-	if stmt, err = tx1.Preparex("select id from auth where session_id = ?"); err != nil {
+	var count int
+	if stmt, err = tx1.Preparex("select count(1) from auth where to_base64(session_id) = ? "); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 	defer stmt.Close()
-	if err := stmt.Get(&vendorId, "select id from auth where session_id = ?", request.SessionId); err != nil {
+	if err := stmt.Get(&count, request.SessionId); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
-	if stmt, err = tx1.Preparex("update domain d set vendor_code = ?, update_at = utc_timestamp() where id = ?)"); err != nil {
+
+	if (count == 0) {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(errors.New("failed, account not found."), tx1)))
+	} else if (count > 1) {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(errors.New("failed, invalid account."), tx1)))
+	}
+
+	if stmt, err = tx1.Preparex("select id from auth where to_base64(session_id) = ? limit 1"); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
+	defer stmt.Close()
+	if err := stmt.Get(&vendorId, request.SessionId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
+	}
+
+	if stmt, err = tx1.Preparex("update domain set vendor_code = ?, update_at = utc_timestamp() where id = ?"); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 	defer stmt.Close()
@@ -138,7 +138,7 @@ func Upgrade(c echo.Context) error {
 	if tx2, err = shard.Beginx(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, err))
 	}
-	stmt, err = tx2.Preparex(db.CreateVendorQuery(vendorId))
+	stmt, err = tx2.Preparex(db.CreateSummaryQuery(vendorId))
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
@@ -165,21 +165,20 @@ func Upgrade(c echo.Context) error {
 	stmt, err = tx2.Preparex(db.CreateAuthQuery(vendorId))
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 	_, err = stmt.Exec()
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
-	stmt, err = tx2.Preparex(`insert into vendor_` + db.ToSuffix(vendorId) + ` (
-		id, queue_id, reset_count, name, first_code,
+	stmt, err = tx2.Preparex(`insert into summary_` + db.ToSuffix(vendorId) + ` (
+		id, queue_code, reset_count, name, first_code,
 		last_code, total_wait, total_in, total_out, maintenance,
 		caption, delete_flag, create_at, update_at
 	) values (
 		?, '', 0, ?, '',
 		'', 0, 0, 0, 0,
 		?, 0, utc_timestamp(), utc_timestamp()
-	);`)
+	)`)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
 	}
@@ -187,6 +186,37 @@ func Upgrade(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
+
+	stmt, err = tx2.Preparex(db.CreateSequenceQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	_, err = stmt.Exec()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	stmt, err = tx2.Preparex(db.NewSequenceQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	_, err = stmt.Exec("NUM", 0, 1)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+	}
+
+	_, err = tx2.Query(db.CreateFuncCurrSeqQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	_, err = tx2.Query(db.CreateFuncNextSeqQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+	_, err = tx2.Query(db.CreateFuncUpdateSeqQuery(vendorId))
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	}
+
 	if err := tx2.Commit(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx2)))
 	}
@@ -302,6 +332,18 @@ type ResBodyUpdateQueue struct{}
 func UpdateQueue(c echo.Context) error {
 	// TODO require SSO check is ok.
 	return c.String(http.StatusOK, "vendor")
+}
+
+// Dequeue vendor user request body struct
+type ReqBodyDequeue struct{}
+
+// Dequeue vendor user response body struct
+type ResBodyDequeue struct{}
+
+// Dequeue(logical remove) vendor user
+func Dequeue(c echo.Context) error {
+	// TODO require SSO check is ok.
+	return c.String(http.StatusOK, "")
 }
 
 // Logoff vendor user request body struct

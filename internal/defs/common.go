@@ -104,6 +104,7 @@ const (
 	// UserAuthOption XX9XX
 	ResponseNgUserAuthLacked = 900 // ng, user auth info lacked.
 	ResponseNgUserAuthFailed = 901 // ng, user auth failed.
+	ResponseNgUserAuthNotFound = 902 // ng, user auth not found.
 )
 
 var responseCodeText = map[ResponseCode]string{
@@ -154,6 +155,7 @@ var responseCodeText = map[ResponseCode]string{
 	ResponseNgUserCannotAuthDequeue:             "ResponseNgUserCannotAuthDequeue",
 	ResponseNgUserAuthLacked:                    "ResponseNgUserAuthLacked",
 	ResponseNgUserAuthFailed:                    "ResponseNgUserAuthFailed",
+	ResponseNgUserAuthNotFound:                  "ResponseNgUserAuthNotFound",
 }
 
 func ResponseCodeText(c ResponseCode) string {

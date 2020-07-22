@@ -269,12 +269,12 @@ func DropDomainQuery() string {
 // Domain table adaptor struct
 type Domain struct {
 	Id          uint64
-	ServiceCode uint8  `db:service_code`
-	VendorCode  []byte `db:vendor_code`
+	ServiceCode uint8  `db:"service_code"`
+	VendorCode  []byte `db:"vendor_code"`
 	Shard       int16
-	DeleteFlag  uint8     `db:delete_flag`
-	CreateAt    time.Time `db:create_at`
-	UpdateAt    time.Time `db:update_at`
+	DeleteFlag  uint8     `db:"delete_flag"`
+	CreateAt    time.Time `db:"create_at"`
+	UpdateAt    time.Time `db:"update_at"`
 }
 
 // Create table auth query string
@@ -308,12 +308,12 @@ drop table auth;`
 
 // struct is same to consumer auth table.
 
-// Create table vendor query string
-func CreateVendorQuery(num uint64) string {
+// Create table summary query string
+func CreateSummaryQuery(num uint64) string {
 	query := `
-create table vendor_` + ToSuffix(num) + ` (
+create table summary_` + ToSuffix(num) + ` (
     id			bigint unsigned not null,
-    queue_id		varchar(128) not null,
+    queue_code  	varbinary(256) not null,
     reset_count		smallint unsigned not null,
     name		varchar(1024) not null,
     first_code		varchar(3) not null,
@@ -326,59 +326,56 @@ create table vendor_` + ToSuffix(num) + ` (
     delete_flag		tinyint unsigned not null,
     create_at		datetime not null,
     update_at		datetime not null,
-    primary key (id)
+    primary key (id),
+    unique (queue_code)
 ) engine=innodb;`
 	return query
 }
 
 // Drop table vendor query string
-func DropVendorQuery(num uint64) string {
+func DropSummaryQuery(num uint64) string {
 	query := `
-drop table vendor_` + ToSuffix(num) + `;`
+drop table summary_` + ToSuffix(num) + `;`
 	return query
 }
 
 // Vendor table adaptor struct
-type Vendor struct {
+type Summary struct {
 	Id          uint64
-	QueueId     string `db:queue_id`
-	ResetCount  uint16 `db:reset_count`
+	QueueCode   []byte `db:"queue_code"`
+	ResetCount  uint16 `db:"reset_count"`
 	Name        string
-	FirstCode   string `db:first_code`
-	LastCode    string `db:last_code`
-	TotalWait   uint16 `db:total_wait`
-	TotalIn     uint16 `db:total_in`
-	TotalOut    uint16 `db:total_out`
+	FirstCode   string `db:"first_code"`
+	LastCode    string `db:"last_code"`
+	TotalWait   uint16 `db:"total_wait"`
+	TotalIn     uint16 `db:"total_in"`
+	TotalOut    uint16 `db:"total_out"`
 	Maintenance bool
 	Caption     string
-	DeleteFlag  uint8     `db:delete_flag`
-	CreateAt    time.Time `db:create_at`
-	UpdateAt    time.Time `db:update_at`
+	DeleteFlag  uint8     `db:"delete_flag"`
+	CreateAt    time.Time `db:"create_at"`
+	UpdateAt    time.Time `db:"update_at"`
 }
 
 // Create table queue query string
 func CreateQueueQuery(num uint64) string {
 	query := `
 create table queue_` + ToSuffix(num) + ` (
-    id			bigint unsigned not null,
-    queue_id		varchar(128) not null,
+    id          	bigint unsigned not null auto_increment,
+    queue_code  	varbinary(256) not null,
+    uid			bigint unsigned not null,
     keycode_prefix	varchar(3) not null,
     keycode_suffix	varchar(128) not null,
-    prev_code		varchar(3) not null,
-    next_code		varchar(3) not null,
-    mail		boolean not null,
     mail_addr		varchar(1024) not null,
     mail_count		smallint unsigned not null,
-    push		boolean not null,
     push_type		tinyint unsigned not null,
     push_count		smallint unsigned not null,
-    caption		varchar(1024) not null,
+    status		tinyint unsigned not null,
     delete_flag		tinyint unsigned not null,
     create_at		datetime not null,
     update_at		datetime not null,
     primary key (id),
-    unique (keycode_prefix),
-    unique (keycode_suffix)
+    unique (queue_code, keycode_prefix)
   ) engine=innodb;`
 	return query
 }
@@ -393,21 +390,18 @@ drop table queue_` + ToSuffix(num) + `;`
 // Queue table adaptor struct
 type Queue struct {
 	Id            uint64
-	QueueId       string `db:queue_id`
-	KeycodePrefix string `db:keycode_prefix`
-	KeycodeSuffix string `db:keycode_suffix`
-	PrevCode      string `db:prev_code`
-	NextCode      string `db:next_code`
-	Mail          bool
-	MailAddr      string `db:mail_addr`
-	MailCount     uint16 `db:mail_count`
-	Push          bool
-	PushType      uint8  `db:push_type`
-	PushCount     uint16 `db:push_count`
-	Caption       string
-	DeleteFlag    uint8     `db:delete_flag`
-	CreateAt      time.Time `db:create_at`
-	UpdateAt      time.Time `db:update_at`
+	QueueCode     []byte `db:"queue_code"`
+	Uid           string `db:"uid"`
+	KeycodePrefix string `db:"keycode_prefix"`
+	KeycodeSuffix string `db:"keycode_suffix"`
+	MailAddr      string `db:"mail_addr"`
+	MailCount     uint16 `db:"mail_count"`
+	PushType      uint8  `db:"push_type"`
+	PushCount     uint16 `db:"push_count"`
+	Status        uint8
+	DeleteFlag    uint8     `db:"delete_flag"`
+	CreateAt      time.Time `db:"create_at"`
+	UpdateAt      time.Time `db:"update_at"`
 }
 
 // Create table keycode query string
@@ -421,8 +415,7 @@ create table keycode_` + ToSuffix(num) + ` (
     create_at		datetime not null,
     update_at		datetime not null,
     primary key (id),
-    unique (keycode_prefix),
-    unique (keycode_suffix)
+    unique (keycode_prefix, keycode_suffix)
   ) engine=innodb;`
 	return query
 }
@@ -437,11 +430,11 @@ drop table keycode_` + ToSuffix(num) + `;`
 // Keycode table adaptor struct
 type Keycode struct {
 	Id            uint64
-	KeycodePrefix string    `db:keycode_prefix`
-	KeycodeSuffix string    `db:keycode_suffix`
-	DeleteFlag    uint8     `db:delete_flag`
-	CreateAt      time.Time `db:create_at`
-	UpdateAt      time.Time `db:update_at`
+	KeycodePrefix string    `db:"keycode_prefix"`
+	KeycodeSuffix string    `db:"keycode_suffix"`
+	DeleteFlag    uint8     `db:"delete_flag"`
+	CreateAt      time.Time `db:"create_at"`
+	UpdateAt      time.Time `db:"update_at"`
 }
 
 // Create table auth query string
@@ -477,15 +470,97 @@ drop table auth_` + ToSuffix(num) + `;`
 // Auth table adaptor struct
 type Auth struct {
 	Id               uint64
-	PlatformType     string `db:platform_type`
-	IdentifierType   uint8  `db:identifier_type`
+	PlatformType     string `db:"platform_type"`
+	IdentifierType   uint8  `db:"identifier_type"`
 	Identifier       string
 	Seed             string
 	Secret           string
-	PrivateCode      []byte    `db:private_code`
-	SessionId        string    `db:session_id`
-	SessionFootprint time.Time `db:session_footprint`
-	DeleteFlag       uint8     `db:delete_flag`
-	CreateAt         time.Time `db:create_at`
-	UpdateAt         time.Time `db:update_at`
+	PrivateCode      []byte    `db:"private_code"`
+	SessionId        string    `db:"session_id"`
+	SessionFootprint time.Time `db:"session_footprint"`
+	DeleteFlag       uint8     `db:"delete_flag"`
+	CreateAt         time.Time `db:"create_at"`
+	UpdateAt         time.Time `db:"update_at"`
+}
+
+// Create table sequence string
+func CreateSequenceQuery(num uint64) string {
+	query := `
+create table sequence_` + ToSuffix(num) + ` (
+    name		char(3) not null,
+    curr_value		bigint unsigned not null,
+    increment		smallint not null,
+    primary key (name)
+  ) engine=innodb;`
+	return query
+}
+
+// Drop table sequence query string
+func DropSequenceQuery(num uint64) string {
+	query := `
+drop table sequence_` + ToSuffix(num) + `;`
+	return query
+}
+
+// Sequence table adaptor struct
+type Sequence struct {
+	Name             string
+	CurrValue        uint64 `db:"curr_value"`
+	Increment        int16
+}
+
+func NewSequenceQuery(num uint64) string {
+	query := `
+insert into sequence_` + ToSuffix(num) + ` values (?, ?, ?);`
+	return query
+}
+
+func CreateFuncCurrSeqQuery(num uint64) string {
+	query := `
+create function currseq_` + ToSuffix(num) + ` (seq_name char(3))
+    returns bigint unsigned
+    language sql
+    deterministic
+    contains sql
+    sql security definer
+    comment ''
+begin
+    declare value bigint unsigned;
+    set value = 0;
+    select curr_value into value from sequence_` + ToSuffix(num) + ` where name = seq_name;
+    return value;
+end`
+	return query
+}
+
+func CreateFuncNextSeqQuery(num uint64) string {
+	query := `
+create function nextseq_` + ToSuffix(num) + ` (seq_name char(3))
+    returns bigint unsigned
+    language sql
+    deterministic
+    contains sql
+    sql security definer
+    comment ''
+begin
+    update sequence_` + ToSuffix(num) + ` set curr_value = curr_value + increment where name = seq_name;
+    return currseq_` + ToSuffix(num) + `(seq_name);
+end`
+	return query
+}
+
+func CreateFuncUpdateSeqQuery(num uint64) string {
+	query := `
+create function setseq_` + ToSuffix(num) + ` (seq_name char(3), value integer)
+    returns bigint unsigned
+    language sql
+    deterministic
+    contains sql
+    sql security definer
+    comment ''
+begin
+    update sequence_` + ToSuffix(num) + ` set curr_value = value where name = seq_name;
+    return currseq` + ToSuffix(num) + `(seq_name);
+end`
+	return query
 }
