@@ -66,27 +66,27 @@ select_keycode(){
 select_queue(){
   dbsuffix=`printf '%02x' ${1}`
   tablesuffix=`printf '%016x' ${1}`
-  query="select * from ${DBPREFIX}_shard_${dbsuffix}.queue_${tablesuffix} where id between ${2} and ${2}+${3} order by id;"
+  query="select id, to_base64(queue_code), uid, keycode_prefix, keycode_suffix, mail_addr, mail_count, push_type, push_count, status, delete_flag, create_at, update_at from ${DBPREFIX}_shard_${dbsuffix}.queue_${tablesuffix} where id between ${2} and ${2}+${3} order by id;"
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}" -s
 }
 
-select_vendor(){
+select_summary(){
   dbsuffix=`printf '%02x' ${1}`
   tablesuffix=`printf '%016x' ${1}`
-  query="select * from ${DBPREFIX}_shard_${dbsuffix}.vendor_${tablesuffix} where id between ${2} and ${2}+${3} order by id;"
+  query="select * from ${DBPREFIX}_shard_${dbsuffix}.summary_${tablesuffix} where id between ${2} and ${2}+${3} order by id;"
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}" -s
 }
 
-ident(){
-  query="select * from ${DBPREFIX}_master.vendor where id between ${1} and ${1}+${2} order by id;"
+select_ident(){
+  query="select identifier, to_base64(session_id), to_base64(private_code) from ${DBPREFIX}_master.auth where id between ${1} and ${1}+${2} order by id;"
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}" -s
 }
 
 
 usage(){
-  echo "[USAGE] domain|auth|keycode|queue|vendor start length"
-  echo "[USAGE] ident uuid"
-  echo "[USAGE] domain_ident|auth_ident|keycode_ident|queue_ident|vendor_ident"
+  echo "[USAGE] domain|vauth start length"
+  echo "[USAGE] auth|keycode|queue|summary shard start length"
+  echo "[USAGE] ident start length"
 }
 
 # main logics.
@@ -97,8 +97,8 @@ case "$1" in
   auth ) select_auth $2 $3 $4 ;;
   keycode ) select_keycode $2 $3 $4 ;;
   queue ) select_queue $2 $3 $4 ;;
-  vendor ) select_vendor $2 $3 $4 ;;
-  ident ) select_ident $2 ;;
+  summary ) select_summary $2 $3 $4 ;;
+  ident ) select_ident $2 $3 ;;
   * ) usage ;;
 esac
 
