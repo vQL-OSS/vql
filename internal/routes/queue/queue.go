@@ -152,35 +152,37 @@ func Create(c echo.Context) error {
 
 	// save create vendor master tables
 	master := db.Conns.Master()
-	var tx1 *sqlx.Tx
+	var tx *sqlx.Tx
 	var result sql.Result
-	if tx1, err = master.Beginx(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx1)))
+	if tx, err = master.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
 	}
 	// already exists? -> logon or recover response
 	// TODO seed exists check.
 	// TODO auth exists check.
-	if result, err = db.TxPreparexExec(tx1, `insert into domain (
+	if result, err = db.TxPreparexExec(tx, `insert into domain (
 		service_code, vendor_code, shard, delete_flag, create_at, update_at
 	) values (
 		?, '', ?, 0, utc_timestamp(), utc_timestamp()
 	)`, defs.ServiceCode, -1); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	signedId, err := result.LastInsertId()
 	vendorId := uint64(signedId)
 
-	if result, err = db.TxPreparexExec(tx1, `insert into auth (
-		id, identifier_type, platform_type, identifier, seed, secret, ticks, private_code, session_id, session_private, session_footprint, delete_flag, create_at, update_at
+	if result, err = db.TxPreparexExec(tx, `insert into auth (
+		id, identifier_type, platform_type, identifier, seed, secret,
+		ticks, private_code, session_id, session_private, session_footprint, delete_flag,
+		create_at, update_at
 	) values (
 		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, utc_timestamp(), 0, utc_timestamp(), utc_timestamp()
 	)`, vendorId, request.IdentifierType, platformType, request.Identifier, request.Seed, "", request.Ticks, privateCode, sessionId, sessionPrivate); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
-	if err = tx1.Commit(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx1)))
+	if err = tx.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	c.Echo().Logger.Debug("created")
@@ -212,41 +214,38 @@ func Logon(c echo.Context) error {
 	}
 
 	master := db.Conns.Master()
-	var tx1 *sqlx.Tx
-	if tx1, err = master.Beginx(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, err))
+	var tx *sqlx.Tx
+	if tx, err = master.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
 	}
-	var stmt *sqlx.Stmt
 	var count int
-	if stmt, err = tx1.Preparex("select count(1) from auth where to_base64(private_code) = ? "); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if err = stmt.Get(&count, request.PrivateCode); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
+	if err = db.TxPreparexGet(tx, "select count(1) from auth where to_base64(private_code) = ? ", &count, request.PrivateCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	if count == 0 {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(errors.New("failed, private code not found. "+request.PrivateCode), tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(errors.New("failed, private code not found. "+request.PrivateCode), tx)))
 	} else if count > 1 {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(errors.New("failed, invalid private code. "+request.PrivateCode), tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(errors.New("failed, invalid private code. "+request.PrivateCode), tx)))
 	}
 
 	sessionId, err := defs.NewSession(string(decodedPrivateCode[:]))
 	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, db.RollbackResolve(err, tx)))
 	}
 	sessionPrivate, err := defs.NewSessionPrivate()
 	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, db.RollbackResolve(err, tx)))
 	}
-	if stmt, err = tx1.Preparex("update auth set session_id = ?, session_private = ?, session_footprint = utc_timestamp(), update_at = utc_timestamp() where to_base64(private_code) = ?"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
+
+	if _, err = db.TxPreparexExec(tx, `update auth set session_id = ?, session_private = ?, session_footprint = utc_timestamp(), update_at = utc_timestamp()
+	where to_base64(private_code) = ?`,
+	sessionId, sessionPrivate, request.PrivateCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 	}
-	if _, err = stmt.Exec(sessionId, sessionPrivate, request.PrivateCode); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if err = tx1.Commit(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx1)))
+
+	if err = tx.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	c.Echo().Logger.Debug("created")
@@ -295,22 +294,29 @@ func Enqueue(c echo.Context) error {
 	var beforePerson int
 	var total int
 	if _, err = db.TxPreparexExec(tx, `insert into queue_` + db.ToSuffix(vendorId) + ` (
-		queue_code, uid, keycode_prefix, keycode_suffix, mail_addr, mail_count, push_type, push_count, status, delete_flag, create_at, update_at
+		queue_code, uid, keycode_prefix, keycode_suffix, mail_addr, mail_count,
+		push_type, push_count, status, delete_flag, create_at, update_at
 	) values (
 		from_base64(?), ?, cast(nextseq_` + db.ToSuffix(vendorId) + `("NUM") as char), "suffix_test", "", 0, 0, 0, 1, 0, utc_timestamp(), utc_timestamp()
 	)`, request.QueueCode, authCtx.Uid); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
-	if err = db.TxPreparexGet(tx, "select id, keycode_prefix, keycode_suffix from queue_" + db.ToSuffix(vendorId) + " where to_base64(queue_code) = ? and uid = ? and status = 1 and delete_flag = 0  limit 1", &result, request.QueueCode, authCtx.Uid); err != nil {
+	if err = db.TxPreparexGet(tx, `select id, keycode_prefix, keycode_suffix from queue_` + db.ToSuffix(vendorId) +
+	` where to_base64(queue_code) = ? and uid = ? and status = 1 and delete_flag = 0  limit 1`,
+	&result, request.QueueCode, authCtx.Uid); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 	}
 
-	if err = db.TxPreparexGet(tx, "select count(1) from queue_" + db.ToSuffix(vendorId) + " where to_base64(queue_code) = ? and id < ? and status = 1 and delete_flag = 0", &beforePerson, request.QueueCode, result.Id); err != nil {
+	if err = db.TxPreparexGet(tx, `select count(1) from queue_` + db.ToSuffix(vendorId) +
+	` where to_base64(queue_code) = ? and id < ? and status = 1 and delete_flag = 0`,
+	&beforePerson, request.QueueCode, result.Id); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 	}
 
-	if err = db.TxPreparexGet(tx, "select count(1) from queue_" + db.ToSuffix(vendorId) + " where to_base64(queue_code) = ? and status = 1 and delete_flag = 0", &total, request.QueueCode); err != nil {
+	if err = db.TxPreparexGet(tx, `select count(1) from queue_` + db.ToSuffix(vendorId) +
+	` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0`,
+	&total, request.QueueCode); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 	}
 
@@ -329,12 +335,12 @@ func Enqueue(c echo.Context) error {
 // Get keycode list in queue
 func Get(c echo.Context) error {
 	var err error
+	authCtx := c.(*defs.AuthContext)
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
 	request := RequestBodyQueue{}
 	response := ResponseBodyQueue{}
 	response.ResponseCode = defs.ResponseOk
 	response.Ticks = time.Now().Unix()
-	sessionId := c.Request().Header.Get("Session")
 	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTicksInvalid, true, err))
@@ -344,50 +350,10 @@ func Get(c echo.Context) error {
 	}
 
 	master := db.Conns.Master()
-	var tx1 *sqlx.Tx
-	if tx1, err = master.Beginx(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, err))
-	}
-	var stmt *sqlx.Stmt
-	var count int
-	var Uid uint64
 	var vendorId uint64
-	if stmt, err = tx1.Preparex("select count(1) from auth where to_base64(session_id) = ? and date_add(session_footprint, interval 45 minute) > utc_timestamp()"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if err = stmt.Get(&count, sessionId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-
-	if count == 0 {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(errors.New("failed, session not found."), tx1)))
-	} else if count > 1 {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(errors.New("failed, invalid session."), tx1)))
-	}
-
-	if stmt, err = tx1.Preparex("select id from auth where to_base64(session_id) = ? and date_add(session_footprint, interval 45 minute) > utc_timestamp()"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if err = stmt.Get(&Uid, sessionId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-
-	if stmt, err = tx1.Preparex("update auth set session_footprint = utc_timestamp() where to_base64(session_id) = ?"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if _, err = stmt.Exec(sessionId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-
-	if stmt, err = tx1.Preparex("select id from domain where to_base64(vendor_code) = ?"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-	if err = stmt.Get(&vendorId, request.VendorCode); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx1)))
-	}
-
-	if err = tx1.Commit(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx1)))
+	if err = db.PreparexGet(master, "select id from domain where to_base64(vendor_code) = ?",
+	&vendorId, request.VendorCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 
 	// create vendor shard tables.
@@ -395,9 +361,9 @@ func Get(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgShardConnectFailed, true, err))
 	}
-	var tx2 *sqlx.Tx
-	if tx2, err = shard.Beginx(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, err))
+	var tx *sqlx.Tx
+	if tx, err = shard.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
 	}
 	result := struct {
 		Id     uint64
@@ -405,46 +371,42 @@ func Get(c echo.Context) error {
 	}{0, 0}
 	var beforePerson int
 	var total int
+	var count int
 
-	if stmt, err = tx2.Preparex("select count(1) from queue_" + db.ToSuffix(vendorId) + " where to_base64(queue_code) = ? and uid = ? and keycode_prefix = ? and keycode_suffix = ? and delete_flag = 0  limit 1"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
-	}
-	if err = stmt.Get(&count, request.QueueCode, Uid, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	if err = db.TxPreparexGet(tx, `select count(1) from queue_` + db.ToSuffix(vendorId) +
+	` where to_base64(queue_code) = ? and uid = ? and keycode_prefix = ? and keycode_suffix = ? and delete_flag = 0  limit 1`,
+	&count, request.QueueCode, authCtx.Uid, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	if count == 0 {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(errors.New("failed, keycode not found."), tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(errors.New("failed, keycode not found."), tx)))
 	}
 
-	if stmt, err = tx2.Preparex("select id, status from queue_" + db.ToSuffix(vendorId) + " where to_base64(queue_code) = ? and uid = ? and keycode_prefix = ? and keycode_suffix = ? and delete_flag = 0  limit 1"); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
-	}
-	if err = stmt.Get(&result, request.QueueCode, Uid, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+	if err = db.TxPreparexGet(tx, `select id, status from queue_` + db.ToSuffix(vendorId) +
+	` where to_base64(queue_code) = ? and uid = ? and keycode_prefix = ? and keycode_suffix = ? and delete_flag = 0  limit 1`,
+	&result, request.QueueCode, authCtx.Uid, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	response.Status = result.Status
-
 	if result.Status == 1 {
-		if stmt, err = tx2.Preparex("select count(1) from queue_" + db.ToSuffix(vendorId) + " where to_base64(queue_code) = ? and id < ? and status = 1 and delete_flag = 0"); err != nil {
-			return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+		if err = db.TxPreparexGet(tx, `select count(1) from queue_` + db.ToSuffix(vendorId) +
+		` where to_base64(queue_code) = ? and id < ? and status = 1 and delete_flag = 0`,
+		&beforePerson, request.QueueCode, result.Id); err != nil {
+			return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 		}
-		if err = stmt.Get(&beforePerson, request.QueueCode, result.Id); err != nil {
-			return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
-		}
-		if stmt, err = tx2.Preparex("select count(1) from queue_" + db.ToSuffix(vendorId) + " where to_base64(queue_code) = ? and status = 1 and delete_flag = 0"); err != nil {
-			return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
-		}
-		if err = stmt.Get(&total, request.QueueCode); err != nil {
-			return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+		if err = db.TxPreparexGet(tx, `select count(1) from queue_` + db.ToSuffix(vendorId) +
+		` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0`,
+		&total, request.QueueCode); err != nil {
+			return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx)))
 		}
 		response.PersonsWaitingBefore = beforePerson
 		response.TotalWaiting = total
 	}
 
-	if err := tx2.Commit(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx2)))
+	if err := tx.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	c.Echo().Logger.Debug("fetch queue info")
