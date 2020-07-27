@@ -41,10 +41,9 @@ import (
 
 // Upgrade vendor user request body struct
 type RequestBodyUpgrade struct {
-	SessionId      string `json:SessionId`
 	Name           string `json:Name`
 	Caption        string `json:Caption`
-	defs.MessageBodyBase
+	defs.RequestBodyBase
 }
 
 // Upgrade vendor user response body struct
@@ -62,6 +61,7 @@ func Upgrade(c echo.Context) error {
 	response.ResponseCode = defs.ResponseOk
 	response.VendorCode = ""
 	response.Ticks = time.Now().Unix()
+	sessionId := c.Request().Header.Get("Session")
 	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTicksInvalid, true, err))
@@ -100,7 +100,7 @@ func Upgrade(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 	defer stmt.Close()
-	if err := stmt.Get(&count, request.SessionId); err != nil {
+	if err := stmt.Get(&count, sessionId); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 
@@ -114,7 +114,7 @@ func Upgrade(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 	defer stmt.Close()
-	if err := stmt.Get(&vendorId, request.SessionId); err != nil {
+	if err := stmt.Get(&vendorId, sessionId); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, err))
 	}
 
@@ -154,7 +154,7 @@ func Upgrade(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
-	stmt, err = tx2.Preparex(db.CreateKeycodeQuery(vendorId))
+	stmt, err = tx2.Preparex(db.CreateKeyCodeQuery(vendorId))
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
 	}

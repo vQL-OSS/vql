@@ -27,6 +27,7 @@ package db
 import (
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
+	"database/sql"
 	"github.com/jmoiron/sqlx"
 	"time"
 	"vql/internal/defs"
@@ -210,6 +211,68 @@ func RollbackResolve(err error, tx *sqlx.Tx) error {
 	return err
 }
 
+// Prepared statement and execute from transaction
+func PreparexExec(db *sqlx.DB, query string, args ...interface{}) (sql.Result, error) {
+	var stmt *sqlx.Stmt
+	var err error
+	var result sql.Result
+        if stmt, err = db.Preparex(query); err != nil { return nil, err }
+        defer stmt.Close()
+        if result, err = stmt.Exec(args...); err != nil { return nil, err }
+        return result, nil
+}
+
+// Prepared statement and single select from transaction
+func PreparexGet(db *sqlx.DB, query string, dest interface{}, args ...interface{}) error {
+	var stmt *sqlx.Stmt
+	var err error
+        if stmt, err = db.Preparex(query); err != nil { return err }
+        defer stmt.Close()
+	if err = stmt.Get(dest, args...); err != nil { return err }
+        return nil
+}
+
+// Prepared statement and multi select from transaction
+func PreparexSelect(db *sqlx.DB, query string, dest interface{}, args ...interface{}) error {
+	var stmt *sqlx.Stmt
+	var err error
+        if stmt, err = db.Preparex(query); err != nil { return err }
+        defer stmt.Close()
+	if err = stmt.Select(dest, args...); err != nil { return err }
+        return nil
+}
+
+// Prepared statement and execute from transaction
+func TxPreparexExec(tx *sqlx.Tx, query string, args ...interface{}) (sql.Result, error) {
+	var stmt *sqlx.Stmt
+	var err error
+	var result sql.Result
+        if stmt, err = tx.Preparex(query); err != nil { return nil, err }
+        defer stmt.Close()
+        if result, err = stmt.Exec(args...); err != nil { return nil, err }
+        return result, nil
+}
+
+// Prepared statement and single select from transaction
+func TxPreparexGet(tx *sqlx.Tx, query string, dest interface{}, args ...interface{}) error {
+	var stmt *sqlx.Stmt
+	var err error
+        if stmt, err = tx.Preparex(query); err != nil { return err }
+        defer stmt.Close()
+	if err = stmt.Get(dest, args...); err != nil { return err }
+        return nil
+}
+
+// Prepared statement and multi select from transaction
+func TxPreparexSelect(tx *sqlx.Tx, query string, dest interface{}, args ...interface{}) error {
+	var stmt *sqlx.Stmt
+	var err error
+        if stmt, err = tx.Preparex(query); err != nil { return err }
+        defer stmt.Close()
+	if err = stmt.Select(dest, args...); err != nil { return err }
+        return nil
+}
+
 // Create database master
 func CreateDatabaseMaster() string {
 	query := `create database if not exists ` + defs.ServicePrefix + `_` + Master + ` default character set utf8;`
@@ -290,6 +353,7 @@ create table auth (
     ticks		bigint unsigned not null,
     private_code	varbinary(256) not null,
     session_id          varbinary(256) not null,
+    session_private     varbinary(256) not null,
     session_footprint   datetime not null,
     delete_flag		tinyint unsigned not null,
     create_at		datetime not null,
@@ -392,8 +456,8 @@ type Queue struct {
 	Id            uint64
 	QueueCode     []byte `db:"queue_code"`
 	Uid           string `db:"uid"`
-	KeycodePrefix string `db:"keycode_prefix"`
-	KeycodeSuffix string `db:"keycode_suffix"`
+	KeyCodePrefix string `db:"keycode_prefix"`
+	KeyCodeSuffix string `db:"keycode_suffix"`
 	MailAddr      string `db:"mail_addr"`
 	MailCount     uint16 `db:"mail_count"`
 	PushType      uint8  `db:"push_type"`
@@ -405,7 +469,7 @@ type Queue struct {
 }
 
 // Create table keycode query string
-func CreateKeycodeQuery(num uint64) string {
+func CreateKeyCodeQuery(num uint64) string {
 	query := `
 create table keycode_` + ToSuffix(num) + ` (
     id			bigint unsigned not null,
@@ -421,17 +485,17 @@ create table keycode_` + ToSuffix(num) + ` (
 }
 
 // Drop table keycode query string
-func DropKeycodeQuery(num uint64) string {
+func DropKeyCodeQuery(num uint64) string {
 	query := `
 drop table keycode_` + ToSuffix(num) + `;`
 	return query
 }
 
-// Keycode table adaptor struct
-type Keycode struct {
+// KeyCode table adaptor struct
+type KeyCode struct {
 	Id            uint64
-	KeycodePrefix string    `db:"keycode_prefix"`
-	KeycodeSuffix string    `db:"keycode_suffix"`
+	KeyCodePrefix string    `db:"keycode_prefix"`
+	KeyCodeSuffix string    `db:"keycode_suffix"`
 	DeleteFlag    uint8     `db:"delete_flag"`
 	CreateAt      time.Time `db:"create_at"`
 	UpdateAt      time.Time `db:"update_at"`
@@ -477,6 +541,7 @@ type Auth struct {
 	Secret           string
 	PrivateCode      []byte    `db:"private_code"`
 	SessionId        string    `db:"session_id"`
+	SessionPrivate   string    `db:"session_private"`
 	SessionFootprint time.Time `db:"session_footprint"`
 	DeleteFlag       uint8     `db:"delete_flag"`
 	CreateAt         time.Time `db:"create_at"`

@@ -31,4 +31,5 @@ const (
 	ServicePrefix = "default"
 	Version       = "1.0.0"
 	MagicKey      = "KIWIKIWIKIWIKIWIKIWIKIWIKIWIKIWI"
+	SessionTimeout = "45"
 )

@@ -39,11 +39,13 @@ import (
 	"math/rand"
 	"net/url"
 	"runtime"
+	"github.com/labstack/echo/v4"
 )
 
 const stacktraceDepth = 2
-
 type ResponseCode int16
+var VendorSeed string
+var SessionSeed string
 
 const (
 	// Common XX0XX
@@ -158,6 +160,11 @@ var responseCodeText = map[ResponseCode]string{
 	ResponseNgUserAuthNotFound:                  "ResponseNgUserAuthNotFound",
 }
 
+type AuthContext struct {
+        echo.Context
+        Uid            uint64
+}
+
 func ResponseCodeText(c ResponseCode) string {
 	return responseCodeText[c]
 }
@@ -170,6 +177,13 @@ func InitRand(noFixedSeed bool) {
 	} else {
 		rand.Seed(1) // use fixed seed for test.
 	}
+}
+
+func InitSeed() {
+	VendorSeedBytes, _ := NewGuid()
+	SessionSeedBytes, _ := NewGuid()
+	VendorSeed = string(VendorSeedBytes[:])
+	SessionSeed = string(SessionSeedBytes[:])
 }
 
 // Create newguid - 16 bytes array
@@ -194,6 +208,7 @@ func NewVendorCode() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// TODO migrate to VendorSeed
 	io.WriteString(hash, string(guid[:]))
 	return hash.Sum(nil), nil
 }
@@ -210,7 +225,14 @@ func NewPrivateCode() ([]byte, error) {
 }
 
 // Create new session id (base64 encodded)
-func NewSession() ([]byte, error) {
+func NewSession(keyword string) ([]byte, error) {
+	hash := sha3.New256()
+	io.WriteString(hash, SessionSeed + keyword)
+	return hash.Sum(nil), nil
+}
+
+// Create new session private code (base64 encodded)
+func NewSessionPrivate() ([]byte, error) {
 	hash := sha3.New256()
 	guid, err := NewGuid()
 	if err != nil {
@@ -275,12 +297,20 @@ func Encode(v interface{}, t int64) string {
 
 // request body base struct
 type MessageBodyBase struct {
-	SessionId string `json:SessionId`
 	Ticks int64 `json:Ticks`
 }
 
 func (m *MessageBodyBase) GetTicks() int64 {
 	return m.Ticks
+}
+
+type MessageHandle interface {
+	GetTicks() int64
+}
+
+// request body base struct
+type RequestBodyBase struct {
+	MessageBodyBase
 }
 
 type RequestHandle interface {

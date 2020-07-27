@@ -30,3 +30,4 @@ var ServiceCode = 0
 var ServicePrefix = "default"
 var Version = "1.0.0"
 var MagicKey = "KIWIKIWIKIWIKIWIKIWIKIWIKIWIKIWI"
+var SessionTimeout = "45"

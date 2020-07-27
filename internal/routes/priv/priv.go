@@ -79,7 +79,7 @@ func DropVendor(c echo.Context) error {
 	defer stmt.Close()
 	stmt.Exec()
 	// generate keycodes
-	stmt, err = tx.Preparex(db.DropKeycodeQuery(domain.Id))
+	stmt, err = tx.Preparex(db.DropKeyCodeQuery(domain.Id))
 	if err != nil {
 		return err
 	}

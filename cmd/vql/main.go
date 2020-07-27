@@ -26,15 +26,12 @@ package main
 import (
 	"flag"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"log"
 	"os"
 	"os/signal"
 	"vql/internal/db"
 	"vql/internal/defs"
-	"vql/internal/routes/priv"
-	"vql/internal/routes/queue"
-	"vql/internal/routes/vendor"
+	"vql/internal/routes"
 )
 
 var (
@@ -65,35 +62,7 @@ func main() {
 	}
 
 	e := echo.New()
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-
-	e.POST("/new", queue.Create)
-	e.POST("/on", queue.Logon)
-	e.POST("/on/queue", queue.Enqueue)
-
-	//vg := e.Group("/on", queue.Middleware("logon"))
-	//vg.GET("/on/queue/search/:id", queue.Search)
-	//vg.GET("/on/queue/detail/:id", queue.Detail)
-	//vg.GET("/on/queue/:id", queue.Get)
-	//vg.POST("/on/queue/:id", queue.Queue)
-	//vg.GET("/on/queue/:id", queue.Update)
-
-	e.POST("/on/vendor/upgrade", vendor.Upgrade)
-	//vg.POST("/on/vendor/:id", vendor.Logon)
-	//vg.PUT("/on/vendor/:id", vendor.Update)
-	//vg.GET("/on/vendor/:id", vendor.Detail)
-	//vg.POST("/on/vendor/auth/:id", vendor.AddAuth)
-	//vg.PUT("/on/vendor/auth/:id", vendor.UpdateAuth)
-	//vg.POST("/on/vendor/queue/:id", vendor.InitializeQueue)
-	//vg.GET("/on/vendor/queue/:id", vendor.ShowQueue)
-	//vg.PUT("/on/vendor/queue/:id", vendor.UpdateQueue)
-	//vg.DELETE("/on/vendor/queue/:id", vendor.Dequeue)
-	//vg.DELETE("/on/vendor/:id", vendor.Purge)
-	//vg.POST("/off/vendor/:id", vendor.Logoff)
-
-	//vp := e.Group("/priv", priv.Middleware("priv"))
-	e.DELETE("/priv/vendor", priv.DropVendor)
+	route.Init(e)
 
 	e.Logger.Fatal(e.Start(":7000"))
 

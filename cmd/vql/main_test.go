@@ -22,7 +22,7 @@
 */
 
 // Consumer side web api package
-package queue
+package main
 
 import (
 	"github.com/labstack/echo/v4"
@@ -35,7 +35,9 @@ import (
 	"testing"
 	"vql/internal/defs"
 	"vql/internal/db"
+	"vql/internal/routes"
 	"vql/internal/routes/priv"
+	"vql/internal/routes/queue"
 	"vql/internal/routes/vendor"
 )
 
@@ -46,7 +48,9 @@ func TestCreate(t *testing.T) {
 	assert.NoError(t, db.Conns.Init())
 	assert.NoError(t, db.OpConns.Init())
 	e := echo.New()
-	reqBody := RequestBodyCreate{}
+	route.Init(e)
+
+	reqBody := queue.RequestBodyCreate{}
 	reqBody.IdentifierType = 0
 	reqBody.Identifier = "57ea5c1f17211a2c384a05030a88fcace73d9d92bd1c714da5c68ede09847304"
 	reqBody.Seed = "9c463571a92614f5ed8ff55c249e7b8c458860e030284d2b5bcc7a529ac58741"
@@ -61,7 +65,7 @@ func TestCreate(t *testing.T) {
 	req.Header.Set("Nonce", "637295289927929882")
 	c := e.NewContext(req, rec)
 
-	assert.NoError(t, Create(c))
+	assert.NoError(t, queue.Create(c))
 	assert.NoError(t, priv.DropVendor(c))
 	assert.NoError(t, db.Teardown())
 }
@@ -73,7 +77,7 @@ func TestLogon(t *testing.T) {
 	assert.NoError(t, db.Conns.Init())
 	assert.NoError(t, db.OpConns.Init())
 	e := echo.New()
-	reqBody := RequestBodyCreate{}
+	reqBody := queue.RequestBodyCreate{}
 	reqBody.IdentifierType = 0
 	reqBody.Identifier = "57ea5c1f17211a2c384a05030a88fcace73d9d92bd1c714da5c68ede09847304"
 	reqBody.Seed = "9c463571a92614f5ed8ff55c249e7b8c458860e030284d2b5bcc7a529ac58741"
@@ -88,12 +92,12 @@ func TestLogon(t *testing.T) {
 	req.Header.Set("Nonce", "637295289927929882")
 	c := e.NewContext(req, rec)
 
-	assert.NoError(t, Create(c))
-        resCreate := ResponseBodyCreate{}
+	assert.NoError(t, queue.Create(c))
+        resCreate := queue.ResponseBodyCreate{}
         bodyBytes, _ := ioutil.ReadAll(rec.Body)
         defs.Decode(bodyBytes, &resCreate, resCreate.Ticks);
 
-        reqLogon := RequestBodyLogon{}
+        reqLogon := queue.RequestBodyLogon{}
         reqLogon.PrivateCode = resCreate.PrivateCode
         reqLogon.Ticks = 1592619000
         base64Encoded = defs.Encode(reqLogon, reqLogon.Ticks)
@@ -105,7 +109,7 @@ func TestLogon(t *testing.T) {
 	req.Header.Set("IV", "0")
 	req.Header.Set("Nonce", "637295289927929882")
 	c = e.NewContext(req, rec)
-	assert.NoError(t, Logon(c))
+	assert.NoError(t, queue.Logon(c))
 
 
 	assert.NoError(t, priv.DropVendor(c))
@@ -119,7 +123,9 @@ func TestEnqueue(t *testing.T) {
 	assert.NoError(t, db.Conns.Init())
 	assert.NoError(t, db.OpConns.Init())
 	e := echo.New()
-	reqBody := RequestBodyCreate{}
+	route.Init(e)
+
+	reqBody := queue.RequestBodyCreate{}
 	reqBody.IdentifierType = 0
 	reqBody.Identifier = "57ea5c1f17211a2c384a05030a88fcace73d9d92bd1c714da5c68ede09847304"
 	reqBody.Seed = "9c463571a92614f5ed8ff55c249e7b8c458860e030284d2b5bcc7a529ac58741"
@@ -134,12 +140,12 @@ func TestEnqueue(t *testing.T) {
 	req.Header.Set("Nonce", "637295289927929882")
 	c := e.NewContext(req, rec)
 
-	assert.NoError(t, Create(c))
-        resCreate := ResponseBodyCreate{}
+	assert.NoError(t, queue.Create(c))
+        resCreate := queue.ResponseBodyCreate{}
         bodyBytes, _ := ioutil.ReadAll(rec.Body)
         defs.Decode(bodyBytes, &resCreate, resCreate.Ticks);
 
-        reqLogon := RequestBodyLogon{}
+        reqLogon := queue.RequestBodyLogon{}
         reqLogon.PrivateCode = resCreate.PrivateCode
         reqLogon.Ticks = 1592619000
         base64Encoded = defs.Encode(reqLogon, reqLogon.Ticks)
@@ -151,10 +157,9 @@ func TestEnqueue(t *testing.T) {
 	req.Header.Set("IV", "0")
 	req.Header.Set("Nonce", "637295289927929882")
 	c = e.NewContext(req, rec)
-	assert.NoError(t, Logon(c))
+	assert.NoError(t, queue.Logon(c))
 
 	reqUpgrade := vendor.RequestBodyUpgrade{}
-	reqUpgrade.SessionId = resCreate.SessionId
 	reqUpgrade.Name = "vendor sample"
 	reqUpgrade.Caption = "caption sample"
 	reqUpgrade.Ticks = 1592619000
@@ -166,11 +171,11 @@ func TestEnqueue(t *testing.T) {
 	req.Header.Set("Platform", "Windows")
 	req.Header.Set("IV", "0")
 	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
 	c = e.NewContext(req, rec)
 	assert.NoError(t, vendor.Upgrade(c))
 
-        reqEnqueue := RequestBodyEnqueue{}
-	reqEnqueue.SessionId = resCreate.SessionId
+        reqEnqueue := queue.RequestBodyEnqueue{}
         reqEnqueue.VendorCode = ""
         reqEnqueue.QueueCode = ""
         reqEnqueue.Ticks = 1592619000
@@ -182,9 +187,61 @@ func TestEnqueue(t *testing.T) {
 	req.Header.Set("Platform", "Windows")
 	req.Header.Set("IV", "0")
 	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
 	c = e.NewContext(req, rec)
-	assert.NoError(t, Enqueue(c))
+	authCtx := &defs.AuthContext{ c, 1 }
+	assert.NoError(t, queue.Enqueue(authCtx))
 
+	assert.NoError(t, priv.DropVendor(c))
+	assert.NoError(t, db.Teardown())
+}
+
+// Upgrade vendor user test
+func TestUpgrade(t *testing.T) {
+	defs.ServicePrefix = "gotest"
+	assert.NoError(t, db.Setup())
+	assert.NoError(t, db.Conns.Init())
+	assert.NoError(t, db.OpConns.Init())
+	e := echo.New()
+	route.Init(e)
+
+	reqCreate := queue.RequestBodyCreate{}
+	reqCreate.IdentifierType = 0
+	reqCreate.Identifier = "57ea5c1f17211a2c384a05030a88fcace73d9d92bd1c714da5c68ede09847304"
+	reqCreate.Seed = "9c463571a92614f5ed8ff55c249e7b8c458860e030284d2b5bcc7a529ac58741"
+	reqCreate.Ticks = 1592619000
+	base64Encoded := defs.Encode(reqCreate, reqCreate.Ticks)
+	urlEncoded := url.QueryEscape(base64Encoded)
+	req := httptest.NewRequest(http.MethodPost, "/new", strings.NewReader(urlEncoded))
+	rec := httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	c := e.NewContext(req, rec)
+
+	assert.NoError(t, queue.Create(c))
+
+	resCreate := queue.ResponseBodyCreate{}
+	bodyBytes, _ := ioutil.ReadAll(rec.Body)
+	defs.Decode(bodyBytes, &resCreate, resCreate.Ticks);
+
+	reqUpgrade := vendor.RequestBodyUpgrade{}
+	reqUpgrade.Name = "vendor sample"
+	reqUpgrade.Caption = "caption sample"
+	reqUpgrade.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpgrade, reqUpgrade.Ticks)
+	urlEncoded = url.QueryEscape(base64Encoded)
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/upgrade", strings.NewReader(urlEncoded))
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx := &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.Upgrade(authCtx))
 	assert.NoError(t, priv.DropVendor(c))
 	assert.NoError(t, db.Teardown())
 }
