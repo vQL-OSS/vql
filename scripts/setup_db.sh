@@ -72,6 +72,7 @@ create_table_vendor_auth(){
     ticks               bigint unsigned not null,
     private_code        varbinary(256) not null,
     session_id          varbinary(256) not null,
+    session_private     varbinary(256) not null,
     session_footprint   datetime not null,
     delete_flag         tinyint unsigned not null,
     create_at           datetime not null,
