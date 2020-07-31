@@ -41,14 +41,14 @@ import (
 
 // Upgrade vendor user request body struct
 type RequestBodyUpgrade struct {
-	Name           string `json:Name`
-	Caption        string `json:Caption`
+	Name    string `json:Name`
+	Caption string `json:Caption`
 	defs.RequestBodyBase
 }
 
 // Upgrade vendor user response body struct
 type ResponseBodyUpgrade struct {
-	VendorCode  string `json:VendorCode`
+	VendorCode string `json:VendorCode`
 	defs.ResponseBodyBase
 }
 
@@ -99,10 +99,12 @@ func Upgrade(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
-	if (count == 0) {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(errors.New("failed, account not found."), tx1)))
-	} else if (count > 1) {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(errors.New("failed, invalid account."), tx1)))
+	if count == 0 {
+		err = errors.New("failed, account not found.")
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx1)))
+	} else if count > 1 {
+		err = errors.New("failed, invalid account.")
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
 	if err = db.TxPreparexGet(tx1, "select id from auth where to_base64(session_id) = ? limit 1", &vendorId, sessionId); err != nil {
@@ -138,7 +140,7 @@ func Upgrade(c echo.Context) error {
 	if _, err = db.TxPreparexExec(tx2, db.CreateAuthQuery(vendorId)); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
-	if _, err = db.TxPreparexExec(tx2, `insert into summary_` + db.ToSuffix(vendorId) + ` (
+	if _, err = db.TxPreparexExec(tx2, `insert into summary_`+db.ToSuffix(vendorId)+` (
 		id, queue_code, reset_count, name, first_code,
 		last_code, total_wait, total_in, total_out, maintenance,
 		caption, delete_flag, create_at, update_at

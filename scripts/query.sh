@@ -70,6 +70,13 @@ select_queue(){
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}" -s
 }
 
+delete_queue(){
+  dbsuffix=`printf '%02x' ${1}`
+  tablesuffix=`printf '%016x' ${1}`
+  query="delete from ${DBPREFIX}_shard_${dbsuffix}.queue_${tablesuffix} where id = ${2};"
+  ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}" -s
+}
+
 select_summary(){
   dbsuffix=`printf '%02x' ${1}`
   tablesuffix=`printf '%016x' ${1}`
@@ -87,6 +94,7 @@ usage(){
   echo "[USAGE] domain|vauth start length"
   echo "[USAGE] auth|keycode|queue|summary shard start length"
   echo "[USAGE] ident start length"
+  echo "[USAGE] dequeue shard id"
 }
 
 # main logics.
@@ -99,6 +107,7 @@ case "$1" in
   queue ) select_queue $2 $3 $4 ;;
   summary ) select_summary $2 $3 $4 ;;
   ident ) select_ident $2 $3 ;;
+  dequeue ) delete_queue $2 $3 ;;
   * ) usage ;;
 esac
 
