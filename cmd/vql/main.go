@@ -26,7 +26,7 @@ package main
 import (
 	"flag"
 	"github.com/labstack/echo/v4"
-	"log"
+	"github.com/labstack/gommon/log"
 	"os"
 	"os/signal"
 	"vql/internal/db"
@@ -51,19 +51,18 @@ func main() {
 	param()
 	var err error
 
+	e := echo.New()
 	defs.InitRand(true)
 	err = db.Conns.Init()
 	if err != nil {
-		log.Fatal(err)
+		e.Logger.Fatal(err)
 	}
 	err = db.OpConns.Init()
 	if err != nil {
-		log.Fatal(err)
+		e.Logger.Fatal(err)
 	}
-
-	e := echo.New()
 	route.Init(e)
-
+	e.Logger.SetLevel(log.DEBUG)
 	e.Logger.Fatal(e.Start(":7000"))
 
 	quit := make(chan os.Signal)

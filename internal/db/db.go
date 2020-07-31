@@ -162,7 +162,7 @@ func Teardown() error {
 // initialize all normal db connections
 func (d *Conn) Init() error {
 	var err error
-	d.master, err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+MasterAddr+":"+MasterPort+")/"+defs.ServicePrefix+"_"+Master)
+	d.master, err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+MasterAddr+":"+MasterPort+")/"+defs.ServicePrefix+"_"+Master+"?parseTime=true")
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func (d *Conn) Init() error {
 	d.master.SetConnMaxLifetime(ConnMaxLifetime)
 
 	for i, _ := range d.shard {
-		d.shard[i], err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+ShardAddr+":"+ShardPort+")/"+fmt.Sprintf("%s_%s_%02x", defs.ServicePrefix, Shard, i))
+		d.shard[i], err = sqlx.Open(Name, d.user+":"+d.pass+"@tcp("+ShardAddr+":"+ShardPort+")/"+fmt.Sprintf("%s_%s_%02x", defs.ServicePrefix, Shard, i)+"?parseTime=true")
 		if err != nil {
 			return err
 		}

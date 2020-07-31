@@ -33,7 +33,6 @@ import (
 	"fmt"
 	"golang.org/x/crypto/sha3"
 	"io"
-	"log"
 	"math"
 	"math/big"
 	"math/rand"
@@ -284,12 +283,12 @@ func Decode(encoded []byte, v interface{}, t int64) error {
 func Encode(v interface{}, t int64) string {
 	jsonData, err := json.Marshal(v)
 	if err != nil {
-		log.Printf("encode error : %s", err.Error())
+		//log.Printf("encode error : %s", err.Error())
 		return ""
 	}
-	log.Printf("jsonData bytes: %s", string(jsonData))
+	//log.Printf("jsonData bytes: %s", string(jsonData))
 	data := base64.StdEncoding.EncodeToString([]byte(jsonData))
-	log.Printf("data bytes: %s", data)
+	//log.Printf("data bytes: %s", data)
 	//escData := url.QueryEscape(string(jsonData))
 	//log.Printf("escData bytes: %s", escData)
 	return data
@@ -332,10 +331,10 @@ type ResponseHandle interface {
 	SetResponseCode(c ResponseCode)
 }
 
-func ErrorDispose(r ResponseHandle, c ResponseCode, securitySquash bool, e error) string {
-	log.Printf("response code %s : %s", ResponseCodeText(c), e.Error())
+func ErrorDispose(cx echo.Context, r ResponseHandle, c ResponseCode, securitySquash bool, e error) string {
+	cx.Logger().Debugf("response code %s : %s", ResponseCodeText(c), e.Error())
 	if !ProdMode {
-		printStacktrace()
+		printStacktrace(cx)
 	}
 	if securitySquash {
 		r.SetResponseCode(ResponseNgSecSquashed)
@@ -345,7 +344,7 @@ func ErrorDispose(r ResponseHandle, c ResponseCode, securitySquash bool, e error
 	return Encode(r, r.GetTicks())
 }
 
-func printStacktrace() {
+func printStacktrace(cx echo.Context) {
 	stackMax := 20
 	for stack := 0; stack < stackMax; stack++ {
 		if stack < stacktraceDepth {
@@ -356,6 +355,6 @@ func printStacktrace() {
 			break
 		}
 		funcName := runtime.FuncForPC(point).Name()
-		log.Printf("[STACKTRACE] file=%s, line=%d, func=%v\n", file, line, funcName)
+		cx.Logger().Debugf("[STACKTRACE] file=%s, line=%d, func=%v\n", file, line, funcName)
 	}
 }

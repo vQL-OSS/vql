@@ -26,33 +26,21 @@ package priv
 
 import (
 	_ "github.com/go-sql-driver/mysql"
+        //"github.com/jmoiron/sqlx"
 	//"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"net/http"
 	"vql/internal/db"
-	"fmt"
+	"vql/internal/defs"
 )
-
-// middleware function just to output message
-func Middleware(name string) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			defer fmt.Printf("middleware-%s: defer\n", name)
-			fmt.Printf("middleware-%s: before\n", name)
-			err := next(c)
-			fmt.Printf("middleware-%s: after\n", name)
-			return err
-		}
-	}
-}
 
 // Drop(physics remove) vendor
 func DropVendor(c echo.Context) error {
-	// TODO require SSO check is ok.
+	authCtx := c.(*defs.AuthContext)
 	master := db.OpConns.Master()
 	stmt, err := master.Preparex(`select * from domain where id = ?`)
 	domain := db.Domain{}
-	paramId := 1
+	paramId := authCtx.Uid
 	stmt.Exec(&domain, paramId)
 	if err != nil {
 		return err
@@ -95,4 +83,7 @@ func DropVendor(c echo.Context) error {
 	tx.Commit()
 	c.Echo().Logger.Debug("removed")
 	return c.String(http.StatusOK, "return master key here.")
+
+	c.Logger().Debug("removed")
+	return c.String(http.StatusOK, "")
 }

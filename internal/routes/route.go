@@ -48,9 +48,13 @@ func Init(e *echo.Echo) {
 	g.GET("/queue/:vendor_code/:queue_code", queue.Get)
 	g.POST("/vendor/upgrade", vendor.Upgrade)
 	g.POST("/vendor/dequeue", vendor.Dequeue)
-	e.DELETE("/priv/vendor", priv.DropVendor)
+	g.DELETE("/priv/vendor", priv.DropVendor)
 }
 
+type AuthResult struct {
+        Id     uint64
+	SessionPrivate string `db:"session_private"`
+}
 // middleware function just to output message
 func AuthMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -62,47 +66,41 @@ func AuthMiddleware() echo.MiddlewareFunc {
 			response := defs.ResponseBodyBase{}
 
 			var tx *sqlx.Tx
-			var count int
 			var err error
-			var sessionPrivate string
+			results := []AuthResult{}
+			ac := &defs.AuthContext{c, 0}
 			if tx, err = master.Beginx(); err != nil {
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
+				return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
 			}
-			if err = db.TxPreparexGet(tx, `select count(1) from auth where to_base64(session_id) = ? and date_add(session_footprint, interval `+
-				defs.SessionTimeout+` minute) > utc_timestamp()`, &count, sessionId); err != nil {
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
+			if err = db.TxPreparexSelect(tx, `select id, to_base64(session_private) as session_private from auth where to_base64(session_id) = ? and date_add(session_footprint, interval `+
+				defs.SessionTimeout+` minute) > utc_timestamp()`, &results, sessionId); err != nil {
+				return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
 			}
 
+			count := len(results)
 			if count == 0 {
 				err = errors.New("failed, session not found. " + sessionId)
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
+				return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
 			} else if count > 1 {
 				err = errors.New("failed, invalid session. " + sessionId)
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
-			}
-
-			if err = db.TxPreparexGet(tx, "select to_base64(session_private) from auth where to_base64(session_id) = ?", &sessionPrivate, sessionId); err != nil {
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
+				return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
 			}
 
 			// check validate hash
-			verifyHash := defs.ToHmacSha256(sessionPrivate+nonce, defs.MagicKey)
+			verifyHash := defs.ToHmacSha256(results[0].SessionPrivate+nonce, defs.MagicKey)
 			if hash != verifyHash {
 				err = errors.New("failed, verify session. " + sessionId)
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
+				return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
 			}
 
-			ac := &defs.AuthContext{c, 0}
-			if err = db.TxPreparexGet(tx, "select id from auth where to_base64(session_id) = ?", &ac.Uid, sessionId); err != nil {
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
-			}
+			ac.Uid = results[0].Id
 
 			if _, err = db.TxPreparexExec(tx, "update auth set session_footprint = utc_timestamp() where to_base64(session_id) = ?", sessionId); err != nil {
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
+				return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
 			}
 
 			if err = tx.Commit(); err != nil {
-				return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
+				return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx)))
 			}
 			return next(ac)
 		}

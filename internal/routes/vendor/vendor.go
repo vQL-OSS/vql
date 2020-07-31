@@ -31,7 +31,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -55,90 +54,86 @@ type ResponseBodyUpgrade struct {
 // Upgrade vendor
 func Upgrade(c echo.Context) error {
 	var err error
+	authCtx := c.(*defs.AuthContext)
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
 	request := RequestBodyUpgrade{}
 	response := ResponseBodyUpgrade{}
 	response.ResponseCode = defs.ResponseOk
 	response.VendorCode = ""
 	response.Ticks = time.Now().Unix()
-	sessionId := c.Request().Header.Get("Session")
 	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTicksInvalid, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTicksInvalid, true, err))
 	}
 	if err = defs.Decode(bodyBytes, &request, ticks); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgEncodeInvalid, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgEncodeInvalid, true, err))
 	}
 
 	// validate param
-	log.Printf("data: %v", request)
+	c.Logger().Debugf("data: %v", request)
 	nonce := c.Request().Header.Get("Nonce")
-	log.Printf("nonce: %v", nonce)
+	c.Logger().Debugf("nonce: %v", nonce)
 	_, err = strconv.ParseInt(nonce, 10, 64)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgNonceInvalid, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgNonceInvalid, true, err))
 	}
 
 	vendorCode, err := defs.NewVendorCode()
 	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgHashGenerateFailed, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgHashGenerateFailed, true, err))
 	}
 
 	// save create vendor master tables
 	master := db.Conns.Master()
 	var tx1 *sqlx.Tx
 	if tx1, err = master.Beginx(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx1)))
 	}
 	// already exists? -> logon or recover response
 	// TODO seed exists check.
 	// TODO auth exists check.
-	var vendorId uint64
+	vendorId := authCtx.Uid
 	var count int
-	if err = db.TxPreparexGet(tx1, "select count(1) from auth where to_base64(session_id) = ? ", &count, sessionId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
+	if err = db.TxPreparexGet(tx1, "select count(1) from auth where id = ? ", &count, vendorId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
 	if count == 0 {
 		err = errors.New("failed, account not found.")
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx1)))
 	} else if count > 1 {
 		err = errors.New("failed, invalid account.")
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx1)))
-	}
-
-	if err = db.TxPreparexGet(tx1, "select id from auth where to_base64(session_id) = ? limit 1", &vendorId, sessionId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
 	if _, err = db.TxPreparexExec(tx1, "update domain set vendor_code = ?, update_at = utc_timestamp() where id = ?", vendorCode, vendorId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
 	if err := tx1.Commit(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx1)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx1)))
 	}
 
 	// create vendor shard tables.
 	shard, err := db.Conns.Shard(vendorId)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgShardConnectFailed, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
 	}
 	var tx2 *sqlx.Tx
 	if tx2, err = shard.Beginx(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx2)))
 	}
 	if _, err = db.TxPreparexExec(tx2, db.CreateSummaryQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 	if _, err = db.TxPreparexExec(tx2, db.CreateQueueQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 	if _, err = db.TxPreparexExec(tx2, db.CreateKeyCodeQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 	if _, err = db.TxPreparexExec(tx2, db.CreateAuthQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 	if _, err = db.TxPreparexExec(tx2, `insert into summary_`+db.ToSuffix(vendorId)+` (
 		id, queue_code, reset_count, name, first_code,
@@ -149,40 +144,40 @@ func Upgrade(c echo.Context) error {
 		'', 0, 0, 0, 0,
 		?, 0, utc_timestamp(), utc_timestamp()
 	)`, vendorId, request.Name, request.Caption); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
 	if _, err = db.TxPreparexExec(tx2, db.CreateSequenceQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
 	if _, err = db.TxPreparexExec(tx2, db.NewSequenceQuery(vendorId), "NUM", 0, 1); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
 	if _, err = tx2.Query(db.CreateFuncCurrSeqQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
 	if _, err = tx2.Query(db.CreateFuncNextSeqQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
 	if _, err = tx2.Query(db.CreateFuncUpdateSeqQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgPreparedStatementFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
 	if err := tx2.Commit(); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx2)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
 	// update shard = -1 -> shard = proper_shard_num
 	assigned_shard := db.GetShardNum(vendorId)
 	if _, err = db.PreparexExec(master, "update domain set shard = ?, update_at = utc_timestamp() where id = ?", assigned_shard, vendorId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(&response, defs.ResponseNgQueryExecuteFailed, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 
-	c.Echo().Logger.Debug("created")
+	c.Echo().Logger.Debug("upgrade")
 	response.VendorCode = base64.StdEncoding.EncodeToString(vendorCode)
 	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
