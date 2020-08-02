@@ -380,11 +380,6 @@ create table summary_` + ToSuffix(num) + ` (
     queue_code  	varbinary(256) not null,
     reset_count		smallint unsigned not null,
     name		varchar(1024) not null,
-    first_code		varchar(3) not null,
-    last_code		varchar(3) not null,
-    total_wait		smallint unsigned not null,
-    total_in		smallint unsigned not null,
-    total_out		smallint unsigned not null,
     maintenance		boolean not null,
     caption		varchar(4096) not null,
     delete_flag		tinyint unsigned not null,
@@ -409,11 +404,6 @@ type Summary struct {
 	QueueCode   []byte `db:"queue_code"`
 	ResetCount  uint16 `db:"reset_count"`
 	Name        string
-	FirstCode   string `db:"first_code"`
-	LastCode    string `db:"last_code"`
-	TotalWait   uint16 `db:"total_wait"`
-	TotalIn     uint16 `db:"total_in"`
-	TotalOut    uint16 `db:"total_out"`
 	Maintenance bool
 	Caption     string
 	DeleteFlag  uint8     `db:"delete_flag"`

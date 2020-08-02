@@ -212,6 +212,17 @@ func NewVendorCode() ([]byte, error) {
 	return hash.Sum(nil), nil
 }
 
+// Create new queue code (base64 encodded)
+func NewQueueCode() ([]byte, error) {
+	hash := sha3.New256()
+	guid, err := NewGuid()
+	if err != nil {
+		return nil, err
+	}
+	io.WriteString(hash, string(guid[:]))
+	return hash.Sum(nil), nil
+}
+
 // Create new private code (base64 encodded)
 func NewPrivateCode() ([]byte, error) {
 	hash := sha3.New256()

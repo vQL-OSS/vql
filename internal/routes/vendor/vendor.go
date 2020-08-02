@@ -33,6 +33,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	"vql/internal/db"
 	"vql/internal/defs"
@@ -207,88 +208,286 @@ func Update(c echo.Context) error {
 	return c.String(http.StatusOK, "vendor")
 }
 
-// Detail vendor user request body struct
-type ReqBodyDetail struct{}
-
-// Detail vendor user response body struct
-type ResBodyDetail struct{}
-
-// Detail vendor user
-func Detail(c echo.Context) error {
-	// TODO require SSO check is ok.
-	return c.String(http.StatusOK, "vendor")
+// ManageView vendor user response body struct
+type ResBodyManageView struct {
+	Total       int                `json:"Total"`
+	QueingTotal int                `json:"QueingTotal"`
+	Rows        []ViewManageResult `json:"Rows"`
+	defs.ResponseBodyBase
 }
 
-// Add OAuth vendor user request body struct
-type ReqBodyAddAuth struct{}
-
-// Add OAuth vendor user response body struct
-type ResBodyAddAuth struct{}
-
-// Add OAuth vendor user
-func AddAuth(c echo.Context) error {
-	// TODO require SSO check is ok.
-	return c.String(http.StatusOK, "return master key and session_id here.")
+// ManageView vendor db result struct
+type ViewManageResult struct {
+	KeyCodePrefix string `db:"keycode_prefix"`
+	KeyCodeSuffix string `db:"keycode_suffix"`
+	Status        int    `db:"status"`
 }
 
-// Update OAuth vendor user request body struct
-type ReqBodyUpdateAuth struct{}
+// ManageView vendor user
+func ManageView(c echo.Context) error {
+	var err error
+	authCtx := c.(*defs.AuthContext)
+	response := ResBodyManageView{}
+	response.ResponseCode = defs.ResponseOk
+	response.Ticks = time.Now().Unix()
+	_, err = strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTicksInvalid, true, err))
+	}
 
-// Update OAuth vendor user response body struct
-type ResBodyUpdateAuth struct{}
+	limitSize := 20
+	queueCodeUrlSafed := c.Param("queue_code")
+	r := strings.NewReplacer("-", "=", "_", "/", ".", "+")
+	queueCode := r.Replace(queueCodeUrlSafed)
+	pageStr := c.Param("page")
+	if pageStr == "" {
+		pageStr = "0"
+	}
+	page, err := strconv.Atoi(pageStr)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgEncodeInvalid, true, err))
+	}
+	startIndex := page * limitSize
 
-// Update OAuth vendor user
-func UpdateAuth(c echo.Context) error {
-	// TODO require SSO check is ok.
-	return c.String(http.StatusOK, "return master key and session_id here.")
+	if len(queueCode) == 0 {
+		err = errors.New("failed, queue_code not found.")
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, err))
+	}
+
+	master := db.Conns.Master()
+	vendorId := authCtx.Uid
+	var vendorCode string
+	if err = db.PreparexGet(master, "select to_base64(vendor_code) from domain where id = ?",
+		&vendorCode, authCtx.Uid); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+
+	// create vendor shard tables.
+	shard, err := db.Conns.Shard(vendorId)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
+	}
+	results := []ViewManageResult{}
+	var total int
+	var queingTotal int
+
+	if err = db.PreparexGet(shard, `select count(1) from queue_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and delete_flag = 0`,
+		&total, queueCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+	if err = db.PreparexGet(shard, `select count(1) from queue_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0`,
+		&queingTotal, queueCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+	if err = db.PreparexSelect(shard, `select keycode_prefix, keycode_suffix, status from queue_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and delete_flag = 0 limit ? offset ?`,
+		&results, queueCode, limitSize, startIndex); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+
+	c.Echo().Logger.Debug("manage")
+	response.Total = total
+	response.QueingTotal = queingTotal
+	response.Rows = results
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
+}
+
+// Show Queue vendor user response body struct
+type ResBodyShowQueue struct {
+	Total       int               `json:"Total"`
+	QueingTotal int               `json:"QueingTotal"`
+	Rows        []ShowQueueResult `json:"Rows"`
+	defs.ResponseBodyBase
+}
+
+// Show Queue vendor db result struct
+type ShowQueueResult struct {
+	KeyCodePrefix string `db:"keycode_prefix"`
+	Status        int    `db:"status"`
+}
+
+// Show Queue vendor user
+func ShowQueue(c echo.Context) error {
+	var err error
+	authCtx := c.(*defs.AuthContext)
+	response := ResBodyShowQueue{}
+	response.ResponseCode = defs.ResponseOk
+	response.Ticks = time.Now().Unix()
+	_, err = strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTicksInvalid, true, err))
+	}
+
+	limitSize := 20
+	queueCodeUrlSafed := c.Param("queue_code")
+	r := strings.NewReplacer("-", "=", "_", "/", ".", "+")
+	queueCode := r.Replace(queueCodeUrlSafed)
+	pageStr := c.Param("page")
+	if pageStr == "" {
+		pageStr = "0"
+	}
+	page, err := strconv.Atoi(pageStr)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgEncodeInvalid, true, err))
+	}
+	startIndex := page * limitSize
+
+	if len(queueCode) == 0 {
+		err = errors.New("failed, queue_code not found.")
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, err))
+	}
+
+	master := db.Conns.Master()
+	vendorId := authCtx.Uid
+	var vendorCode string
+	if err = db.PreparexGet(master, "select to_base64(vendor_code) from domain where id = ?",
+		&vendorCode, authCtx.Uid); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+
+	// create vendor shard tables.
+	shard, err := db.Conns.Shard(vendorId)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
+	}
+	results := []ShowQueueResult{}
+	var total int
+	var queingTotal int
+
+	if err = db.PreparexGet(shard, `select count(1) from queue_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and delete_flag = 0`,
+		&total, queueCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+	if err = db.PreparexGet(shard, `select count(1) from queue_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0`,
+		&queingTotal, queueCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+	if err = db.PreparexSelect(shard, `select keycode_prefix, status from queue_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and delete_flag = 0 limit ? offset ?`,
+		&results, queueCode, limitSize, startIndex); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+
+	c.Echo().Logger.Debug("show queue")
+	response.Total = total
+	response.QueingTotal = queingTotal
+	response.Rows = results
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
 // Initialize queue vendor user request body struct
-type ReqBodyInitializeQueue struct{}
+type ReqBodyInitQueue struct {
+	RequireAdmit        bool
+	RequireTimeEstimate bool
+	KeyCodeType         byte
+	KeyCodePrefix       string
+	defs.RequestBodyBase
+}
 
 // Initialize queue vendor user response body struct
-type ResBodyInitializeQueue struct{}
+type ResBodyInitQueue struct {
+	QueueCode           string
+	defs.ResponseBodyBase
+}
 
 // Initialize queue vendor user
-func InitializeQueue(c echo.Context) error {
-	// TODO require SSO check is ok.
-	// generate keycodes here
-	return c.String(http.StatusOK, "vendor")
-}
+func InitQueue(c echo.Context) error {
+	var err error
+	authCtx := c.(*defs.AuthContext)
+	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
+	request := ReqBodyInitQueue{}
+	response := ResBodyInitQueue{}
+	response.ResponseCode = defs.ResponseOk
+	response.Ticks = time.Now().Unix()
+	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTicksInvalid, true, err))
+	}
+	if err = defs.Decode(bodyBytes, &request, ticks); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgEncodeInvalid, true, err))
+	}
+	vendorId := authCtx.Uid
 
-// Show queue vendor user request body struct
-type ReqBodyShowQueue struct{}
+	queueCode, err := defs.NewQueueCode()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgHashGenerateFailed, true, err))
+	}
 
-// Show queue vendor user response body struct
-type ResBodyShowQueue struct{}
+	shard, err := db.Conns.Shard(vendorId)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
+	}
+	var tx *sqlx.Tx
+	if tx, err = shard.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if _, err = db.TxPreparexExec(tx, `insert into summary_`+db.ToSuffix(vendorId)+` (
+                id, queue_code, reset_count, name, maintenance, caption, delete_flag, create_at, update_at
+        ) values (
+                ?, ?, cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), "", 0, "", 0, utc_timestamp(), utc_timestamp()
+        )`, vendorId, queueCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+        if err = tx.Commit(); err != nil {
+                return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
+        }
 
-// Show queue vendor user
-func ShowQueue(c echo.Context) error {
-	// TODO require SSO check is ok.
-	return c.String(http.StatusOK, "vendor")
-}
-
-// Update queue vendor user request body struct
-type ReqBodyUpdateQueue struct{}
-
-// Update queue vendor user response body struct
-type ResBodyUpdateQueue struct{}
-
-// Update queue vendor user
-func UpdateQueue(c echo.Context) error {
-	// TODO require SSO check is ok.
-	return c.String(http.StatusOK, "vendor")
+	c.Echo().Logger.Debug("init queue")
+	response.QueueCode = base64.StdEncoding.EncodeToString(queueCode)
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
 // Dequeue vendor user request body struct
-type ReqBodyDequeue struct{}
+type ReqBodyDequeue struct{
+	KeyCodePrefix string `json:"KeyCodePrefix"`
+	KeyCodeSuffix string `json:"KeyCodeSuffix"`
+	defs.RequestBodyBase
+}
 
 // Dequeue vendor user response body struct
-type ResBodyDequeue struct{}
+type ResBodyDequeue struct{
+	defs.ResponseBodyBase
+}
 
 // Dequeue(logical remove) vendor user
 func Dequeue(c echo.Context) error {
-	// TODO require SSO check is ok.
+	var err error
+	authCtx := c.(*defs.AuthContext)
+	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
+	request := ReqBodyDequeue{}
+	response := ResBodyDequeue{}
+	response.ResponseCode = defs.ResponseOk
+	response.Ticks = time.Now().Unix()
+	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTicksInvalid, true, err))
+	}
+	if err = defs.Decode(bodyBytes, &request, ticks); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgEncodeInvalid, true, err))
+	}
+	vendorId := authCtx.Uid
+
+	shard, err := db.Conns.Shard(vendorId)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
+	}
+	var tx *sqlx.Tx
+	if tx, err = shard.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if _, err = db.TxPreparexExec(tx, `update queue_` + db.ToSuffix(vendorId) +
+	` set status = ?, update_at = utc_timestamp() where keycode_prefix = ? and keycode_suffix`,
+	2, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+        if err = tx.Commit(); err != nil {
+                return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
+        }
+
 	return c.String(http.StatusOK, "")
 }
 
