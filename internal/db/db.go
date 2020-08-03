@@ -380,8 +380,9 @@ create table summary_` + ToSuffix(num) + ` (
     queue_code  	varbinary(256) not null,
     reset_count		smallint unsigned not null,
     name		varchar(1024) not null,
-    maintenance		boolean not null,
     caption		varchar(4096) not null,
+    require_admit       boolean not null,
+    maintenance		boolean not null,
     delete_flag		tinyint unsigned not null,
     create_at		datetime not null,
     update_at		datetime not null,
@@ -404,8 +405,9 @@ type Summary struct {
 	QueueCode   []byte `db:"queue_code"`
 	ResetCount  uint16 `db:"reset_count"`
 	Name        string
-	Maintenance bool
 	Caption     string
+	RequireAdmit bool  `db:"require_admit"`
+	Maintenance bool
 	DeleteFlag  uint8     `db:"delete_flag"`
 	CreateAt    time.Time `db:"create_at"`
 	UpdateAt    time.Time `db:"update_at"`

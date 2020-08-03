@@ -25,6 +25,7 @@
 package vendor
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	_ "github.com/go-sql-driver/mysql"
@@ -40,14 +41,14 @@ import (
 )
 
 // Upgrade vendor user request body struct
-type RequestBodyUpgrade struct {
+type ReqBodyUpgrade struct {
 	Name    string `json:Name`
 	Caption string `json:Caption`
 	defs.RequestBodyBase
 }
 
 // Upgrade vendor user response body struct
-type ResponseBodyUpgrade struct {
+type ResBodyUpgrade struct {
 	VendorCode string `json:VendorCode`
 	defs.ResponseBodyBase
 }
@@ -57,8 +58,8 @@ func Upgrade(c echo.Context) error {
 	var err error
 	authCtx := c.(*defs.AuthContext)
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
-	request := RequestBodyUpgrade{}
-	response := ResponseBodyUpgrade{}
+	request := ReqBodyUpgrade{}
+	response := ResBodyUpgrade{}
 	response.ResponseCode = defs.ResponseOk
 	response.VendorCode = ""
 	response.Ticks = time.Now().Unix()
@@ -137,14 +138,10 @@ func Upgrade(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 	if _, err = db.TxPreparexExec(tx2, `insert into summary_`+db.ToSuffix(vendorId)+` (
-		id, queue_code, reset_count, name, first_code,
-		last_code, total_wait, total_in, total_out, maintenance,
-		caption, delete_flag, create_at, update_at
+		id, queue_code, reset_count, name, caption, require_admit, maintenance, delete_flag, create_at, update_at
 	) values (
-		?, '', 0, ?, '',
-		'', 0, 0, 0, 0,
-		?, 0, utc_timestamp(), utc_timestamp()
-	)`, vendorId, request.Name, request.Caption); err != nil {
+		?, '', 0, ?, ?, 0, 0, 0, utc_timestamp(), utc_timestamp()
+	)`, 1, request.Name, request.Caption); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
 
@@ -196,38 +193,25 @@ func Logon(c echo.Context) error {
 	return c.String(http.StatusOK, "return session_id here.")
 }
 
-// Update vendor user request body struct
-type ReqBodyUpdate struct{}
-
-// Update vendor user response body struct
-type ResBodyUpdate struct{}
-
-// Update vendor user
-func Update(c echo.Context) error {
-	// TODO require SSO check is ok.
-	return c.String(http.StatusOK, "vendor")
-}
-
-// ManageView vendor user response body struct
-type ResBodyManageView struct {
+// Manage vendor user response body struct
+type ResBodyManage struct {
 	Total       int                `json:"Total"`
 	QueingTotal int                `json:"QueingTotal"`
-	Rows        []ViewManageResult `json:"Rows"`
+	Rows        []ManageResult `json:"Rows"`
 	defs.ResponseBodyBase
 }
 
-// ManageView vendor db result struct
-type ViewManageResult struct {
+// Manage vendor db result struct
+type ManageResult struct {
 	KeyCodePrefix string `db:"keycode_prefix"`
-	KeyCodeSuffix string `db:"keycode_suffix"`
 	Status        int    `db:"status"`
 }
 
-// ManageView vendor user
-func ManageView(c echo.Context) error {
+// Manage vendor user
+func Manage(c echo.Context) error {
 	var err error
 	authCtx := c.(*defs.AuthContext)
-	response := ResBodyManageView{}
+	response := ResBodyManage{}
 	response.ResponseCode = defs.ResponseOk
 	response.Ticks = time.Now().Unix()
 	_, err = strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
@@ -267,7 +251,7 @@ func ManageView(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
 	}
-	results := []ViewManageResult{}
+	results := []ManageResult{}
 	var total int
 	var queingTotal int
 
@@ -281,7 +265,7 @@ func ManageView(c echo.Context) error {
 		&queingTotal, queueCode); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
-	if err = db.PreparexSelect(shard, `select keycode_prefix, keycode_suffix, status from queue_`+db.ToSuffix(vendorId)+
+	if err = db.PreparexSelect(shard, `select keycode_prefix, status from queue_`+db.ToSuffix(vendorId)+
 		` where to_base64(queue_code) = ? and delete_flag = 0 limit ? offset ?`,
 		&results, queueCode, limitSize, startIndex); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
@@ -372,7 +356,7 @@ func ShowQueue(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 
-	c.Echo().Logger.Debug("show queue")
+	c.Echo().Logger.Debug("vendor show queue")
 	response.Total = total
 	response.QueingTotal = queingTotal
 	response.Rows = results
@@ -390,7 +374,7 @@ type ReqBodyInitQueue struct {
 
 // Initialize queue vendor user response body struct
 type ResBodyInitQueue struct {
-	QueueCode           string
+	QueueCode string
 	defs.ResponseBodyBase
 }
 
@@ -425,16 +409,21 @@ func InitQueue(c echo.Context) error {
 	if tx, err = shard.Beginx(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
 	}
-	if _, err = db.TxPreparexExec(tx, `insert into summary_`+db.ToSuffix(vendorId)+` (
-                id, queue_code, reset_count, name, maintenance, caption, delete_flag, create_at, update_at
-        ) values (
-                ?, ?, cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), "", 0, "", 0, utc_timestamp(), utc_timestamp()
-        )`, vendorId, queueCode); err != nil {
+	db.TxPreparexExec(tx, `drop table queue_backup_`+db.ToSuffix(vendorId))
+	if _, err = db.TxPreparexExec(tx, `create table queue_backup_`+db.ToSuffix(vendorId)+` like queue_`+db.ToSuffix(vendorId)); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
-        if err = tx.Commit(); err != nil {
-                return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
-        }
+	if _, err = db.TxPreparexExec(tx, `truncate table queue_`+db.ToSuffix(vendorId)); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if _, err = db.TxPreparexExec(tx, `update summary_`+db.ToSuffix(vendorId)+`
+	set queue_code = ?, reset_count = cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), require_admit = ?, update_at = utc_timestamp()
+	where id = 1`, queueCode, request.RequireAdmit); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if err = tx.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
+	}
 
 	c.Echo().Logger.Debug("init queue")
 	response.QueueCode = base64.StdEncoding.EncodeToString(queueCode)
@@ -442,18 +431,20 @@ func InitQueue(c echo.Context) error {
 }
 
 // Dequeue vendor user request body struct
-type ReqBodyDequeue struct{
+type ReqBodyDequeue struct {
+	Force         bool   `json:"Force"`
 	KeyCodePrefix string `json:"KeyCodePrefix"`
 	KeyCodeSuffix string `json:"KeyCodeSuffix"`
 	defs.RequestBodyBase
 }
 
 // Dequeue vendor user response body struct
-type ResBodyDequeue struct{
+type ResBodyDequeue struct {
+	Updated bool
 	defs.ResponseBodyBase
 }
 
-// Dequeue(logical remove) vendor user
+// Dequeue by vendor user
 func Dequeue(c echo.Context) error {
 	var err error
 	authCtx := c.(*defs.AuthContext)
@@ -476,19 +467,38 @@ func Dequeue(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
 	}
 	var tx *sqlx.Tx
+	var result sql.Result
+	var updated int64
 	if tx, err = shard.Beginx(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
 	}
-	if _, err = db.TxPreparexExec(tx, `update queue_` + db.ToSuffix(vendorId) +
-	` set status = ?, update_at = utc_timestamp() where keycode_prefix = ? and keycode_suffix`,
-	2, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
+
+	if request.Force {
+		if result, err = db.TxPreparexExec(tx, `update queue_`+db.ToSuffix(vendorId)+
+			` set status = ?, update_at = utc_timestamp() where keycode_prefix = ?`,
+			2, request.KeyCodePrefix); err != nil {
+			return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+		}
+	} else {
+		if result, err = db.TxPreparexExec(tx, `update queue_`+db.ToSuffix(vendorId)+
+			` set status = ?, update_at = utc_timestamp() where keycode_prefix = ? and keycode_suffix = ?`,
+			2, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
+			return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+		}
+	}
+	if updated, err = result.RowsAffected(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
-        if err = tx.Commit(); err != nil {
-                return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
-        }
+	if updated > 1 {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if err = tx.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
+	}
 
-	return c.String(http.StatusOK, "")
+	c.Echo().Logger.Debug("vendor dequeue")
+	response.Updated = updated == 1
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
 // Logoff vendor user request body struct

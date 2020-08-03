@@ -42,7 +42,7 @@ import (
 )
 
 // Create user request body struct
-type RequestBodyCreate struct {
+type ReqBodyCreate struct {
 	IdentifierType byte   `json:IdentifierType`
 	Identifier     string `json:Identifier`
 	Seed           string `json:Seed`
@@ -50,7 +50,7 @@ type RequestBodyCreate struct {
 }
 
 // Create user response body struct
-type ResponseBodyCreate struct {
+type ResBodyCreate struct {
 	PrivateCode    string `json:PrivateCode`
 	SessionId      string `json:SessionId`
 	SessionPrivate string `json:SessionPrivate`
@@ -58,27 +58,27 @@ type ResponseBodyCreate struct {
 }
 
 // Logon user request body struct
-type RequestBodyLogon struct {
+type ReqBodyLogon struct {
 	PrivateCode string `json:PrivateCode`
 	defs.RequestBodyBase
 }
 
 // Logon user response body struct
-type ResponseBodyLogon struct {
+type ResBodyLogon struct {
 	SessionId      string `json:SessionId`
 	SessionPrivate string `json:SessionPrivate`
 	defs.ResponseBodyBase
 }
 
 // Enqueue request body struct
-type RequestBodyEnqueue struct {
+type ReqBodyEnqueue struct {
 	VendorCode string `json:VendorCode`
 	QueueCode  string `json:QueueCode`
 	defs.RequestBodyBase
 }
 
 // Enqueue response body struct
-type ResponseBodyEnqueue struct {
+type ResBodyEnqueue struct {
 	KeyCodePrefix        string `json:KeyCodePrefix`
 	KeyCodeSuffix        string `json:KeyCodeSuffix`
 	PersonsWaitingBefore int    `json:PersonsWaitingBefore`
@@ -87,12 +87,12 @@ type ResponseBodyEnqueue struct {
 }
 
 // Queue request body struct
-type RequestBodyQueue struct {
+type ReqBodyQueue struct {
 	defs.RequestBodyBase
 }
 
 // Queue response body struct
-type ResponseBodyQueue struct {
+type ResBodyQueue struct {
 	PersonsWaitingBefore int `json:PersonsWaitingBefore`
 	TotalWaiting         int `json:TotalWaiting`
 	Status               int `json:Status`
@@ -103,8 +103,8 @@ type ResponseBodyQueue struct {
 func Create(c echo.Context) error {
 	var err error
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
-	request := RequestBodyCreate{}
-	response := ResponseBodyCreate{}
+	request := ReqBodyCreate{}
+	response := ResBodyCreate{}
 	response.ResponseCode = defs.ResponseOk
 	response.SessionId = ""
 	response.Ticks = time.Now().Unix()
@@ -194,8 +194,8 @@ func Create(c echo.Context) error {
 func Logon(c echo.Context) error {
 	var err error
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
-	request := RequestBodyLogon{}
-	response := ResponseBodyLogon{}
+	request := ReqBodyLogon{}
+	response := ResBodyLogon{}
 	response.ResponseCode = defs.ResponseOk
 	response.SessionId = ""
 	response.Ticks = time.Now().Unix()
@@ -259,8 +259,8 @@ func Enqueue(c echo.Context) error {
 	var err error
 	authCtx := c.(*defs.AuthContext)
 	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
-	request := RequestBodyEnqueue{}
-	response := ResponseBodyEnqueue{}
+	request := ReqBodyEnqueue{}
+	response := ResBodyEnqueue{}
 	response.ResponseCode = defs.ResponseOk
 	response.Ticks = time.Now().Unix()
 	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
@@ -293,6 +293,18 @@ func Enqueue(c echo.Context) error {
 	}{0, "", ""}
 	var beforePerson int
 	var total int
+	var count int
+	if err = db.TxPreparexGet(tx, `select count(1) from summary_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and delete_flag = 0`,
+		&count, request.QueueCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+	if count == 0 {
+		err = errors.New("failed, queue code not found. " + request.QueueCode)
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
+	}
+
 	if _, err = db.TxPreparexExec(tx, `insert into queue_`+db.ToSuffix(vendorId)+` (
 		queue_code, uid, keycode_prefix, keycode_suffix, mail_addr, mail_count,
 		push_type, push_count, status, delete_flag, create_at, update_at
@@ -332,16 +344,16 @@ func Enqueue(c echo.Context) error {
 	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
-type GetResult struct {
+type ShowQueueResult struct {
 	Id     uint64
 	Status int
 }
 
-// Get keycode list in queue
-func Get(c echo.Context) error {
+// ShowQueue keycode list in queue
+func ShowQueue(c echo.Context) error {
 	var err error
 	authCtx := c.(*defs.AuthContext)
-	response := ResponseBodyQueue{}
+	response := ResBodyQueue{}
 	response.ResponseCode = defs.ResponseOk
 	response.Ticks = time.Now().Unix()
 	_, err = strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
@@ -376,7 +388,7 @@ func Get(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
 	}
-	results := []GetResult{}
+	results := []ShowQueueResult{}
 	var beforePerson int
 	var total int
 
@@ -407,11 +419,68 @@ func Get(c echo.Context) error {
 		response.TotalWaiting = total
 	}
 
-	c.Echo().Logger.Debug("fetch queue info")
+	c.Echo().Logger.Debug("show queue")
 	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
-// Update keycode in queue
-func Update(c echo.Context) error {
-	return c.String(http.StatusOK, "queue")
+// Dequeue vendor user request body struct
+type ReqBodyDequeue struct {
+	KeyCodePrefix string `json:"KeyCodePrefix"`
+	KeyCodeSuffix string `json:"KeyCodeSuffix"`
+	defs.RequestBodyBase
+}
+
+// Dequeue vendor user response body struct
+type ResBodyDequeue struct {
+	Updated bool
+	defs.ResponseBodyBase
+}
+
+// Dequeue by user
+func Dequeue(c echo.Context) error {
+	var err error
+	authCtx := c.(*defs.AuthContext)
+	bodyBytes, err := ioutil.ReadAll(c.Request().Body)
+	request := ReqBodyDequeue{}
+	response := ResBodyDequeue{}
+	response.ResponseCode = defs.ResponseOk
+	response.Ticks = time.Now().Unix()
+	ticks, err := strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTicksInvalid, true, err))
+	}
+	if err = defs.Decode(bodyBytes, &request, ticks); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgEncodeInvalid, true, err))
+	}
+	vendorId := authCtx.Uid
+
+	shard, err := db.Conns.Shard(vendorId)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
+	}
+	var tx *sqlx.Tx
+	var result sql.Result
+	var updated int64
+	if tx, err = shard.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+	if result, err = db.TxPreparexExec(tx, `update queue_`+db.ToSuffix(vendorId)+
+		` set status = ?, update_at = utc_timestamp() where uid = ? and keycode_prefix = ? and keycode_suffix = ?`,
+		2, authCtx.Uid, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if updated, err = result.RowsAffected(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if updated > 1 {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+	if err = tx.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+	c.Echo().Logger.Debug("dequeue")
+	response.Updated = updated == 1
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
