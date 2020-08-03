@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -x
 #  The MIT License
 #  Copyright (c) 2020 FurtherSystem Co.,Ltd.
 #
@@ -89,7 +89,7 @@ create_user(){
 }
 
 grant_normal_db(){
-  query="grant create, create view, create routine, delete, index, insert, lock tables, select, update on ${1}.* to ${2}@'%';"
+  query="grant create, create view, create routine, drop, delete, index, insert, lock tables, select, update on ${1}.* to ${2}@'%';"
   flush="flush privileges;"
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}
 ${flush}"
