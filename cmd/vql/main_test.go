@@ -566,7 +566,7 @@ func TestEnqueueRequireAdmitForce(t *testing.T) {
 	req.Header.Set("Session", resCreate.SessionId)
 	c = e.NewContext(req, rec)
 	authCtx = &defs.AuthContext{ c, 1 }
-	assert.NoError(t, queue.Dequeue(authCtx))
+	assert.NoError(t, vendor.Dequeue(authCtx))
 
 	assert.NoError(t, priv.DropVendor(authCtx))
 	assert.NoError(t, db.Teardown())

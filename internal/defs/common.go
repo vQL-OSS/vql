@@ -31,6 +31,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/sha3"
 	"io"
 	"math"
@@ -38,11 +39,12 @@ import (
 	"math/rand"
 	"net/url"
 	"runtime"
-	"github.com/labstack/echo/v4"
 )
 
 const stacktraceDepth = 2
+
 type ResponseCode int16
+
 var VendorSeed string
 var SessionSeed string
 
@@ -62,6 +64,12 @@ const (
 	ResponseNgQueryExecuteFailed                   = 17 // ng, db query execute failed.
 	ResponseNgRollbackFailed                       = 18 // ng, db rollback failed.
 	ResponseNgCommitFailed                         = 19 // ng, db commit failed.
+	ResponseNgSessionNotFound                      = 20 // ng, session not found.
+	ResponseNgSessionInvalid                       = 21 // ng, session invalid.
+	ResponseNgRushGardFailed                       = 22 // ng, session not found.
+	ResponseNgQueueCodeNotfound                    = 23 // ng, queue code not found.
+	ResponseNgKeyCodeCodeNotfound                  = 24 // ng, key code not found.
+	ResponseNgSuffixCodeCodeNotfound               = 25 // ng, suffix code not found.
 	// VendorRegist XX1XX
 	ResponseNgVendorNameBlank      = 100 // ng, vendor name is blank.
 	ResponseNgVendorNameMaxover    = 101 // ng, vendor name is capacity over.
@@ -79,6 +87,7 @@ const (
 	ResponseOkVendorAccountRecoveredDataInvalid = -110 // ok, vendor account invalid data recovered.
 	ResponseOkVendorAccountRecoveredFromSeed    = -111 // ok, vendor account recovered from seed.
 	ResponseOkVendorAccountRecoveredFromSso     = -112 // ok, vendor account recovered from sso.
+	ResponseOkVendorRequireInitialize           = -113 // ok, require initialize queue.
 	// VendorView XX2XX
 	ResponseNgVendorConnotMoveup     = 200 // ng, this is top, cannot more moveup
 	ResponseNgVendorAlreadyShelved   = 201 // ng, already sheleved.
@@ -86,6 +95,7 @@ const (
 	ResponseNgVendorAlreadyCanceled  = 203 // ng, already canceled by vendor.
 	// VendorDequeueAuth XX3XX
 	ResponseNgVendorCannotAuthDequeue = 300 // ng, user dequeue auth not executed, dequeue auth failed.
+	ResponseNgVendorDequeueFailed     = 301 // ng, vendor dequeue failed.
 	// VendorNotify XX4XX
 	// VendorAuthOption XX5XX
 	ResponseNgVendorAuthLacked = 500 // ng, vendor auth info lacked.
@@ -102,9 +112,10 @@ const (
 	ResponseNgUserAlreadyCanceled = 705 // ng, already canceled by user.
 	// UserDequeueAuth XX8XX
 	ResponseNgUserCannotAuthDequeue = 800 // ng, vendor dequeue auth not executed on time, dequeue auth failed.
+	ResponseNgUserDequeueFailed     = 801 // ng, dequeue failed.
 	// UserAuthOption XX9XX
-	ResponseNgUserAuthLacked = 900 // ng, user auth info lacked.
-	ResponseNgUserAuthFailed = 901 // ng, user auth failed.
+	ResponseNgUserAuthLacked   = 900 // ng, user auth info lacked.
+	ResponseNgUserAuthFailed   = 901 // ng, user auth failed.
 	ResponseNgUserAuthNotFound = 902 // ng, user auth not found.
 )
 
@@ -123,6 +134,12 @@ var responseCodeText = map[ResponseCode]string{
 	ResponseNgQueryExecuteFailed:                "ResponseNgQueryExecuteFailed",
 	ResponseNgRollbackFailed:                    "ResponseNgRollbackFailed",
 	ResponseNgCommitFailed:                      "ResponseNgCommitFailed",
+	ResponseNgSessionNotFound:                   "ResponseNgSessionNotFound",
+	ResponseNgSessionInvalid:                    "ResponseNgSessionInvalid",
+	ResponseNgRushGardFailed:                    "ResponseNgRushGardFailed",
+	ResponseNgQueueCodeNotfound:                 "ResponseNgQueueCodeNotfound",
+	ResponseNgKeyCodeCodeNotfound:               "ResponseNgKeyCodeCodeNotfound",
+	ResponseNgSuffixCodeCodeNotfound:            "ResponseNgSuffixCodeCodeNotfound",
 	ResponseNgVendorNameBlank:                   "ResponseNgVendorNameBlank",
 	ResponseNgVendorNameMaxover:                 "ResponseNgVendorNameMaxover",
 	ResponseNgVendorNameInvalid:                 "ResponseNgVendorNameInvalid",
@@ -138,11 +155,13 @@ var responseCodeText = map[ResponseCode]string{
 	ResponseOkVendorAccountRecoveredDataInvalid: "ResponseOkVendorAccountRecoveredDataInvalid",
 	ResponseOkVendorAccountRecoveredFromSeed:    "ResponseOkVendorAccountRecoveredFromSeed",
 	ResponseOkVendorAccountRecoveredFromSso:     "ResponseOkVendorAccountRecoveredFromSso",
+	ResponseOkVendorRequireInitialize:           "ResponseOkVendorRequireInitialize",
 	ResponseNgVendorConnotMoveup:                "ResponseNgVendorConnotMoveup",
 	ResponseNgVendorAlreadyShelved:              "ResponseNgVendorAlreadyShelved",
 	ResponseNgVendorAlreadyUnshelved:            "ResponseNgVendorAlreadyUnshelved",
 	ResponseNgVendorAlreadyCanceled:             "ResponseNgVendorAlreadyCanceled",
 	ResponseNgVendorCannotAuthDequeue:           "ResponseNgVendorCannotAuthDequeue",
+	ResponseNgVendorDequeueFailed:               "ResponseNgVendorDequeueFailed",
 	ResponseNgVendorAuthLacked:                  "ResponseNgVendorAuthLacked",
 	ResponseNgVendorAuthFailed:                  "ResponseNgVendorAuthFailed",
 	ResponseNgUserMaxover:                       "ResponseNgUserMaxover",
@@ -154,14 +173,15 @@ var responseCodeText = map[ResponseCode]string{
 	ResponseNgUserCannotPending:                 "ResponseNgUserCannotPending",
 	ResponseNgUserAlreadyCanceled:               "ResponseNgUserAlreadyCanceled",
 	ResponseNgUserCannotAuthDequeue:             "ResponseNgUserCannotAuthDequeue",
+	ResponseNgUserDequeueFailed:                 "ResponseNgUserDequeueFailed",
 	ResponseNgUserAuthLacked:                    "ResponseNgUserAuthLacked",
 	ResponseNgUserAuthFailed:                    "ResponseNgUserAuthFailed",
 	ResponseNgUserAuthNotFound:                  "ResponseNgUserAuthNotFound",
 }
 
 type AuthContext struct {
-        echo.Context
-        Uid            uint64
+	echo.Context
+	Uid uint64
 }
 
 func ResponseCodeText(c ResponseCode) string {
@@ -237,7 +257,7 @@ func NewPrivateCode() ([]byte, error) {
 // Create new session id (base64 encodded)
 func NewSession(keyword string) ([]byte, error) {
 	hash := sha3.New256()
-	io.WriteString(hash, SessionSeed + keyword)
+	io.WriteString(hash, SessionSeed+keyword)
 	return hash.Sum(nil), nil
 }
 

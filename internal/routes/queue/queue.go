@@ -273,6 +273,8 @@ func Enqueue(c echo.Context) error {
 
 	master := db.Conns.Master()
 	var vendorId uint64
+	c.Echo().Logger.Debugf("vendor code: %s", request.VendorCode)
+	c.Echo().Logger.Debugf("queue code: %s", request.QueueCode)
 	if err = db.PreparexGet(master, "select id from domain where to_base64(vendor_code) = ?", &vendorId, request.VendorCode); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
@@ -302,7 +304,7 @@ func Enqueue(c echo.Context) error {
 
 	if count == 0 {
 		err = errors.New("failed, queue code not found. " + request.QueueCode)
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, db.RollbackResolve(err, tx)))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueueCodeNotfound, true, db.RollbackResolve(err, tx)))
 	}
 
 	if _, err = db.TxPreparexExec(tx, `insert into queue_`+db.ToSuffix(vendorId)+` (
@@ -373,7 +375,7 @@ func ShowQueue(c echo.Context) error {
 	}
 	if len(queueCode) == 0 {
 		err = errors.New("failed, queue_code not found.")
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueueCodeNotfound, true, err))
 	}
 
 	master := db.Conns.Master()
@@ -400,7 +402,7 @@ func ShowQueue(c echo.Context) error {
 
 	if len(results) == 0 {
 		err = errors.New("failed, keycode not found.")
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgKeyCodeCodeNotfound, true, err))
 	}
 
 	response.Status = results[0].Status
@@ -473,8 +475,8 @@ func Dequeue(c echo.Context) error {
 	if updated, err = result.RowsAffected(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
-	if updated > 1 {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	if updated != 1 {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserDequeueFailed, true, db.RollbackResolve(err, tx)))
 	}
 	if err = tx.Commit(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))

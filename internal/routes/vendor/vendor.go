@@ -195,8 +195,8 @@ func Logon(c echo.Context) error {
 
 // Manage vendor user response body struct
 type ResBodyManage struct {
-	Total       int                `json:"Total"`
-	QueingTotal int                `json:"QueingTotal"`
+	Total       int            `json:"Total"`
+	QueingTotal int            `json:"QueingTotal"`
 	Rows        []ManageResult `json:"Rows"`
 	defs.ResponseBodyBase
 }
@@ -234,8 +234,8 @@ func Manage(c echo.Context) error {
 	startIndex := page * limitSize
 
 	if len(queueCode) == 0 {
-		err = errors.New("failed, queue_code not found.")
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, err))
+		response.ResponseCode = defs.ResponseOkVendorRequireInitialize
+		return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 	}
 
 	master := db.Conns.Master()
@@ -320,7 +320,7 @@ func ShowQueue(c echo.Context) error {
 
 	if len(queueCode) == 0 {
 		err = errors.New("failed, queue_code not found.")
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgUserAuthNotFound, true, err))
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueueCodeNotfound, true, err))
 	}
 
 	master := db.Conns.Master()
@@ -365,16 +365,16 @@ func ShowQueue(c echo.Context) error {
 
 // Initialize queue vendor user request body struct
 type ReqBodyInitQueue struct {
-	RequireAdmit        bool
-	RequireTimeEstimate bool
-	KeyCodeType         byte
-	KeyCodePrefix       string
+	RequireAdmit        bool `json:"RequireAdmit"`
+	RequireTimeEstimate bool `json:"RequireTimeEstimate"`
+	KeyCodeType         byte `json:"KeyCodeType"`
+	KeyCodePrefix       string `json:"KeyCodePrefix"`
 	defs.RequestBodyBase
 }
 
 // Initialize queue vendor user response body struct
 type ResBodyInitQueue struct {
-	QueueCode string
+	QueueCode string `json:"QueueCode"`
 	defs.ResponseBodyBase
 }
 
