@@ -26,6 +26,7 @@ DBADDR=localhost
 DBUSER=root
 DBPASS=
 DBPREFIX=default
+DBGOTEST=gotest
 CREATE_USER=vql_user
 CREATE_PASS=
 CREATE_OPUSER=vql_opuser
@@ -53,11 +54,13 @@ drop_user(){
 drop_user ${CREATE_USER} || die "error drop user ${DROP_USER}"
 drop_user ${CREATE_OPUSER} || die "error drop user ${DROP_OPUSER}"
 drop_db ${DBPREFIX}_master || die "error drop db ${DBPREFIX}_master"
+drop_db ${DBGOTEST}_master 2>/dev/null
 
 for suffix in `seq -w ${NUM_START} ${NUM_END}`
 do
   hex_suffix=`printf '%02x' ${suffix}`
   drop_db ${DBPREFIX}_shard_${hex_suffix} || die "error drop db ${DBPREFIX}_shard_${hex_suffix}"
+  drop_db ${DBGOTEST}_shard_${hex_suffix} 2>/dev/null
 done
 
 echo "remove ok"

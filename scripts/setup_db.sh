@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/sh
 #  The MIT License
 #  Copyright (c) 2020 FurtherSystem Co.,Ltd.
 #
