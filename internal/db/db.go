@@ -431,7 +431,7 @@ create table queue_` + ToSuffix(num) + ` (
     create_at		datetime not null,
     update_at		datetime not null,
     primary key (id),
-    unique (queue_code, uid)
+    unique (queue_code, keycode_prefix)
   ) engine=innodb;`
 	return query
 }

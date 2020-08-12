@@ -146,6 +146,40 @@ func TestEnqueueNoRequireAdmit(t *testing.T) {
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
         defs.Decode(bodyBytes, &resEnqueue, resEnqueue.Ticks);
 
+	// vendor enqueue dummy 1
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
+	// vendor enqueue dummy 2
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
+	// vendor enqueue dummy 3
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
+
 	// show queue
         vendorCodeUrlUnsafed := resUpgrade.VendorCode
         queueCodeUrlUnsafed := resInitQueue.QueueCode
@@ -321,6 +355,40 @@ func TestEnqueueRequireAdmitPolite(t *testing.T) {
         resEnqueue := queue.ResBodyEnqueue{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
         defs.Decode(bodyBytes, &resEnqueue, resEnqueue.Ticks);
+
+	// vendor enqueue dummy 1
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
+	// vendor enqueue dummy 2
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
+	// vendor enqueue dummy 3
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
 
 	// show queue
         vendorCodeUrlUnsafed := resUpgrade.VendorCode
@@ -498,6 +566,40 @@ func TestEnqueueRequireAdmitForce(t *testing.T) {
         resEnqueue := queue.ResBodyEnqueue{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
         defs.Decode(bodyBytes, &resEnqueue, resEnqueue.Ticks);
+
+	// vendor enqueue dummy 1
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
+	// vendor enqueue dummy 2
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
+	// vendor enqueue dummy 3
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue", nil)
+	rec = httptest.NewRecorder()
+	req.Header.Set("User-Agent", "vQL-Client")
+	req.Header.Set("Platform", "Windows")
+	req.Header.Set("IV", "0")
+	req.Header.Set("Nonce", "637295289927929882")
+	req.Header.Set("Session", resCreate.SessionId)
+	c = e.NewContext(req, rec)
+	authCtx = &defs.AuthContext{ c, 1 }
+	assert.NoError(t, vendor.EnqueueDummy(authCtx))
 
 	// show queue
         vendorCodeUrlUnsafed := resUpgrade.VendorCode

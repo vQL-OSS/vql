@@ -49,6 +49,7 @@ func Init(e *echo.Echo) {
 	g.POST("/dequeue", queue.Dequeue)
 	g.POST("/vendor/upgrade", vendor.Upgrade)
 	g.POST("/vendor/queue/new", vendor.InitQueue)
+	g.POST("/vendor/queue/dummy", vendor.EnqueueDummy)
 	g.GET("/vendor/manage/", vendor.Manage)
 	g.GET("/vendor/manage/:queue_code/:page", vendor.Manage)
 	g.GET("/vendor/queue/:queue_code/:page", vendor.ShowQueue)

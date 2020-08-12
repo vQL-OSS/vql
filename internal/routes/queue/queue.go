@@ -79,6 +79,8 @@ type ReqBodyEnqueue struct {
 
 // Enqueue response body struct
 type ResBodyEnqueue struct {
+	VendorName           string `json:VendorName`
+	VendorCaption        string `json:VendorCaption`
 	KeyCodePrefix        string `json:KeyCodePrefix`
 	KeyCodeSuffix        string `json:KeyCodeSuffix`
 	PersonsWaitingBefore int    `json:PersonsWaitingBefore`
@@ -288,7 +290,11 @@ func Enqueue(c echo.Context) error {
 	if tx, err = shard.Beginx(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
 	}
-	result := struct {
+	summaryResult := struct {
+		VendorName    string `db:"name"`
+		VendorCaption string `db:"caption"`
+	}{"", ""}
+	queueResult := struct {
 		Id            uint64
 		KeyCodePrefix string `db:"keycode_prefix"`
 		KeyCodeSuffix string `db:"keycode_suffix"`
@@ -307,6 +313,13 @@ func Enqueue(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueueCodeNotfound, true, db.RollbackResolve(err, tx)))
 	}
 
+	if err = db.TxPreparexGet(tx, `select name, caption from summary_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and delete_flag = 0`,
+		&summaryResult, request.QueueCode); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+
 	if _, err = db.TxPreparexExec(tx, `insert into queue_`+db.ToSuffix(vendorId)+` (
 		queue_code, uid, keycode_prefix, keycode_suffix, mail_addr, mail_count,
 		push_type, push_count, status, delete_flag, create_at, update_at
@@ -318,13 +331,13 @@ func Enqueue(c echo.Context) error {
 
 	if err = db.TxPreparexGet(tx, `select id, keycode_prefix, keycode_suffix from queue_`+db.ToSuffix(vendorId)+
 		` where to_base64(queue_code) = ? and uid = ? and status = 1 and delete_flag = 0  limit 1`,
-		&result, request.QueueCode, authCtx.Uid); err != nil {
+		&queueResult, request.QueueCode, authCtx.Uid); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	if err = db.TxPreparexGet(tx, `select count(1) from queue_`+db.ToSuffix(vendorId)+
 		` where to_base64(queue_code) = ? and id < ? and status = 1 and delete_flag = 0`,
-		&beforePerson, request.QueueCode, result.Id); err != nil {
+		&beforePerson, request.QueueCode, queueResult.Id); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
@@ -339,8 +352,10 @@ func Enqueue(c echo.Context) error {
 	}
 
 	c.Echo().Logger.Debug("enqueued")
-	response.KeyCodePrefix = result.KeyCodePrefix
-	response.KeyCodeSuffix = result.KeyCodeSuffix
+	response.VendorName = summaryResult.VendorName
+	response.VendorCaption = summaryResult.VendorCaption
+	response.KeyCodePrefix = queueResult.KeyCodePrefix
+	response.KeyCodeSuffix = queueResult.KeyCodeSuffix
 	response.PersonsWaitingBefore = beforePerson
 	response.TotalWaiting = total
 	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))

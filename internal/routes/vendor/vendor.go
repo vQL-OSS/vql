@@ -351,7 +351,7 @@ func ShowQueue(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 	if err = db.PreparexSelect(shard, `select keycode_prefix, status from queue_`+db.ToSuffix(vendorId)+
-		` where to_base64(queue_code) = ? and delete_flag = 0 limit ? offset ?`,
+		` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0 limit ? offset ?`,
 		&results, queueCode, limitSize, startIndex); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
@@ -365,9 +365,9 @@ func ShowQueue(c echo.Context) error {
 
 // Initialize queue vendor user request body struct
 type ReqBodyInitQueue struct {
-	RequireAdmit        bool `json:"RequireAdmit"`
-	RequireTimeEstimate bool `json:"RequireTimeEstimate"`
-	KeyCodeType         byte `json:"KeyCodeType"`
+	RequireAdmit        bool   `json:"RequireAdmit"`
+	RequireTimeEstimate bool   `json:"RequireTimeEstimate"`
+	KeyCodeType         byte   `json:"KeyCodeType"`
 	KeyCodePrefix       string `json:"KeyCodePrefix"`
 	defs.RequestBodyBase
 }
@@ -501,16 +501,74 @@ func Dequeue(c echo.Context) error {
 	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
-// Logoff vendor user request body struct
-type ReqBodyLogoff struct{}
+// Enqueue dummy request body struct ... no use
 
-// Logoff vendor user response body struct
-type ResBodyLogoff struct{}
+// Enqueue dummy response body struct
+type ResBodyEnqueueDummy struct {
+	KeyCodePrefix        string `json:KeyCodePrefix`
+	KeyCodeSuffix        string `json:KeyCodeSuffix`
+	defs.ResponseBodyBase
+}
 
-// Logoff vendor user
-func Logoff(c echo.Context) error {
-	// TODO require SSO check is ok.
-	return c.String(http.StatusOK, "vendor")
+// Enqueue dummy
+func EnqueueDummy(c echo.Context) error {
+	var err error
+	authCtx := c.(*defs.AuthContext)
+	response := ResBodyEnqueueDummy{}
+	response.ResponseCode = defs.ResponseOk
+	response.Ticks = time.Now().Unix()
+
+	master := db.Conns.Master()
+	vendorId := authCtx.Uid
+	var vendorCodeBase64 string
+	if err = db.PreparexGet(master, "select to_base64(vendor_code) from domain where id = ?", &vendorCodeBase64, vendorId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+
+	shard, err := db.Conns.Shard(vendorId)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
+	}
+
+	var tx *sqlx.Tx
+	if tx, err = shard.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
+	}
+	result := struct {
+		Id            uint64
+		KeyCodePrefix string `db:"keycode_prefix"`
+		KeyCodeSuffix string `db:"keycode_suffix"`
+	}{0, "", ""}
+	var queueCodeBase64 string
+	if err = db.TxPreparexGet(tx, `select to_base64(queue_code) from summary_`+db.ToSuffix(vendorId)+
+		` where id = ? and delete_flag = 0`,
+		&queueCodeBase64, vendorId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+	if _, err = db.TxPreparexExec(tx, `insert into queue_`+db.ToSuffix(vendorId)+` (
+                queue_code, uid, keycode_prefix, keycode_suffix, mail_addr, mail_count,
+                push_type, push_count, status, delete_flag, create_at, update_at
+        ) values (
+                from_base64(?), ?, cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), "suffix_test", "", 0, 0, 0, 1, 0, utc_timestamp(), utc_timestamp()
+        )`, queueCodeBase64, authCtx.Uid); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+	if err = db.TxPreparexGet(tx, `select id, keycode_prefix, keycode_suffix from queue_`+db.ToSuffix(vendorId)+
+		` where to_base64(queue_code) = ? and uid = ? and status = 1 and delete_flag = 0  limit 1`,
+		&result, queueCodeBase64, authCtx.Uid); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+	if err := tx.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx)))
+	}
+
+	c.Echo().Logger.Debug("dummy enqueued")
+	response.KeyCodePrefix = result.KeyCodePrefix
+	response.KeyCodeSuffix = result.KeyCodeSuffix
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
 // Purge vendor user request body struct
