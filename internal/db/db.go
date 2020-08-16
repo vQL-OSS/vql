@@ -352,6 +352,7 @@ create table auth (
     secret		varchar(128) not null,
     ticks		bigint unsigned not null,
     private_code	varbinary(256) not null,
+    account_type	tinyint unsigned not null,
     session_id          varbinary(256) not null,
     session_private     varbinary(256) not null,
     session_footprint   datetime not null,
@@ -370,7 +371,23 @@ drop table auth;`
 	return query
 }
 
-// struct is same to consumer auth table.
+// Auth table adaptor struct
+type Auth struct {
+	Id               uint64
+	PlatformType     string `db:"platform_type"`
+	IdentifierType   uint8  `db:"identifier_type"`
+	Identifier       string
+	Seed             string
+	Secret           string
+	PrivateCode      []byte    `db:"private_code"`
+	AccountType      uint8     `db:"account_type"`
+	SessionId        string    `db:"session_id"`
+	SessionPrivate   string    `db:"session_private"`
+	SessionFootprint time.Time `db:"session_footprint"`
+	DeleteFlag       uint8     `db:"delete_flag"`
+	CreateAt         time.Time `db:"create_at"`
+	UpdateAt         time.Time `db:"update_at"`
+}
 
 // Create table summary query string
 func CreateSummaryQuery(num uint64) string {
@@ -491,53 +508,6 @@ type KeyCode struct {
 	DeleteFlag    uint8     `db:"delete_flag"`
 	CreateAt      time.Time `db:"create_at"`
 	UpdateAt      time.Time `db:"update_at"`
-}
-
-// Create table auth query string
-func CreateAuthQuery(num uint64) string {
-	query := `
-create table auth_` + ToSuffix(num) + ` (
-    id			bigint unsigned not null,
-    platform_type	varchar(128) not null,
-    identifier_type	tinyint unsigned not null,
-    identifier		varchar(128) not null,
-    seed                varchar(128) not null,
-    secret		varchar(128) not null,
-    ticks		bigint unsigned not null,
-    private_code	varbinary(256) not null,
-    session_id          varbinary(256) not null,
-    session_footprint   datetime not null,
-    delete_flag		tinyint unsigned not null,
-    create_at		datetime not null,
-    update_at		datetime not null,
-    primary key (id),
-    unique (identifier, seed)
-  ) engine=innodb;`
-	return query
-}
-
-// Drop table auth query string
-func DropAuthQuery(num uint64) string {
-	query := `
-drop table auth_` + ToSuffix(num) + `;`
-	return query
-}
-
-// Auth table adaptor struct
-type Auth struct {
-	Id               uint64
-	PlatformType     string `db:"platform_type"`
-	IdentifierType   uint8  `db:"identifier_type"`
-	Identifier       string
-	Seed             string
-	Secret           string
-	PrivateCode      []byte    `db:"private_code"`
-	SessionId        string    `db:"session_id"`
-	SessionPrivate   string    `db:"session_private"`
-	SessionFootprint time.Time `db:"session_footprint"`
-	DeleteFlag       uint8     `db:"delete_flag"`
-	CreateAt         time.Time `db:"create_at"`
-	UpdateAt         time.Time `db:"update_at"`
 }
 
 // Create table sequence string

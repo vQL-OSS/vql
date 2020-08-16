@@ -134,9 +134,6 @@ func Upgrade(c echo.Context) error {
 	if _, err = db.TxPreparexExec(tx2, db.CreateKeyCodeQuery(vendorId)); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
 	}
-	if _, err = db.TxPreparexExec(tx2, db.CreateAuthQuery(vendorId)); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx2)))
-	}
 	if _, err = db.TxPreparexExec(tx2, `insert into summary_`+db.ToSuffix(vendorId)+` (
 		id, queue_code, reset_count, name, caption, require_admit, maintenance, delete_flag, create_at, update_at
 	) values (
@@ -171,8 +168,18 @@ func Upgrade(c echo.Context) error {
 
 	// update shard = -1 -> shard = proper_shard_num
 	assigned_shard := db.GetShardNum(vendorId)
-	if _, err = db.PreparexExec(master, "update domain set shard = ?, update_at = utc_timestamp() where id = ?", assigned_shard, vendorId); err != nil {
-		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	var tx3 *sqlx.Tx
+	if tx3, err = master.Beginx(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx3)))
+	}
+	if _, err = db.TxPreparexExec(tx3, "update domain set shard = ?, update_at = utc_timestamp() where id = ?", assigned_shard, vendorId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx3)))
+	}
+	if _, err = db.TxPreparexExec(tx3, "update auth set account_type = ?, update_at = utc_timestamp() where id = ?", defs.LimitedVendor, vendorId); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx3)))
+	}
+	if err := tx3.Commit(); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgCommitFailed, true, db.RollbackResolve(err, tx3)))
 	}
 
 	c.Echo().Logger.Debug("upgrade")

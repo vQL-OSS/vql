@@ -73,12 +73,6 @@ func DropVendor(c echo.Context) error {
 	}
 	defer stmt.Close()
 	stmt.Exec()
-	stmt, err = tx.Preparex(db.DropAuthQuery(domain.Id))
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	stmt.Exec()
 	// commit
 	tx.Commit()
 	c.Echo().Logger.Debug("removed")

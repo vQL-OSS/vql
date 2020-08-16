@@ -71,6 +71,7 @@ create_table_vendor_auth(){
     secret              varchar(128) not null,
     ticks               bigint unsigned not null,
     private_code        varbinary(256) not null,
+    account_type        tinyint unsigned not null,
     session_id          varbinary(256) not null,
     session_private     varbinary(256) not null,
     session_footprint   datetime not null,

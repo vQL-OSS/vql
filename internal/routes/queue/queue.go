@@ -173,11 +173,11 @@ func Create(c echo.Context) error {
 
 	if result, err = db.TxPreparexExec(tx, `insert into auth (
 		id, identifier_type, platform_type, identifier, seed, secret,
-		ticks, private_code, session_id, session_private, session_footprint, delete_flag,
-		create_at, update_at
+		ticks, private_code, account_type, session_id, session_private, session_footprint, 
+		delete_flag, create_at, update_at
 	) values (
-		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, utc_timestamp(), 0, utc_timestamp(), utc_timestamp()
-	)`, vendorId, request.IdentifierType, platformType, request.Identifier, request.Seed, "", request.Ticks, privateCode, sessionId, sessionPrivate); err != nil {
+		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, utc_timestamp(), 0, utc_timestamp(), utc_timestamp()
+	)`, vendorId, request.IdentifierType, platformType, request.Identifier, request.Seed, "", request.Ticks, privateCode, defs.NormalUser, sessionId, sessionPrivate); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 

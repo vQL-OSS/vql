@@ -179,6 +179,14 @@ var responseCodeText = map[ResponseCode]string{
 	ResponseNgUserAuthNotFound:                  "ResponseNgUserAuthNotFound",
 }
 
+type AccountType uint8
+
+const (
+	NormalUser                    AccountType = 0  // normal user
+	LimitedVendor                             = 1  // limited vendor user
+	UnlimitedVendor                           = 2  // unlimited vendor user
+)
+
 type AuthContext struct {
 	echo.Context
 	Uid uint64
