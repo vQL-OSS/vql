@@ -280,6 +280,25 @@ func NewSessionPrivate() ([]byte, error) {
 	return hash.Sum(nil), nil
 }
 
+// Create new keycode prefix
+func NewKeyCodePrefix(uid string, vendorCode string, queueCode string) ([]byte, error) {
+	hash := sha3.New256()
+	io.WriteString(hash, uid+vendorCode+queueCode)
+	return hash.Sum(nil), nil
+}
+
+// Create new keycode suffix
+func NewKeyCodeSuffix() (string, error) {
+	hash := sha3.New256()
+	guid, err := NewGuid()
+	if err != nil {
+		return "", err
+	}
+	io.WriteString(hash, string(guid[:]))
+	generated := hash.Sum(nil)
+	return fmt.Sprintf("%x",generated[0:4]), nil
+}
+
 func ToBase64(b []byte) string {
 	return base64.StdEncoding.EncodeToString(b)
 }

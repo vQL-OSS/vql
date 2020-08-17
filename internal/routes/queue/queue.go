@@ -95,6 +95,7 @@ type ReqBodyQueue struct {
 
 // Queue response body struct
 type ResBodyQueue struct {
+	Name                 string `json:Name`
 	PersonsWaitingBefore int `json:PersonsWaitingBefore`
 	TotalWaiting         int `json:TotalWaiting`
 	Status               int `json:Status`
@@ -286,6 +287,11 @@ func Enqueue(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
 	}
 
+	keyCodeSuffix, err := defs.NewKeyCodeSuffix()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgHashGenerateFailed, true, err))
+	}
+
 	var tx *sqlx.Tx
 	if tx, err = shard.Beginx(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
@@ -319,13 +325,12 @@ func Enqueue(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
-
 	if _, err = db.TxPreparexExec(tx, `insert into queue_`+db.ToSuffix(vendorId)+` (
 		queue_code, uid, keycode_prefix, keycode_suffix, mail_addr, mail_count,
 		push_type, push_count, status, delete_flag, create_at, update_at
 	) values (
-		from_base64(?), ?, cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), "suffix_test", "", 0, 0, 0, 1, 0, utc_timestamp(), utc_timestamp()
-	)`, request.QueueCode, authCtx.Uid); err != nil {
+		from_base64(?), ?, cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), ?, "", 0, 0, 0, 1, 0, utc_timestamp(), utc_timestamp()
+	)`, request.QueueCode, authCtx.Uid, keyCodeSuffix); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
@@ -408,6 +413,7 @@ func ShowQueue(c echo.Context) error {
 	results := []ShowQueueResult{}
 	var beforePerson int
 	var total int
+	var name string
 
 	if err = db.PreparexSelect(shard, `select id, status from queue_`+db.ToSuffix(vendorId)+
 		` where to_base64(queue_code) = ? and uid = ? and delete_flag = 0 limit 1`,
@@ -419,6 +425,11 @@ func ShowQueue(c echo.Context) error {
 		err = errors.New("failed, keycode not found.")
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgKeyCodeCodeNotfound, true, err))
 	}
+
+	if err = db.PreparexGet(shard, "select name from summary_" + db.ToSuffix(vendorId) + " where id = 1",
+                &name); err != nil {
+                return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+        }
 
 	response.Status = results[0].Status
 	if results[0].Status == 1 {
@@ -432,6 +443,7 @@ func ShowQueue(c echo.Context) error {
 			&total, queueCode); err != nil {
 			return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 		}
+		response.Name = name
 		response.PersonsWaitingBefore = beforePerson
 		response.TotalWaiting = total
 	}

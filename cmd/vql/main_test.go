@@ -86,11 +86,13 @@ func TestEnqueueNoRequireAdmit(t *testing.T) {
 	c = e.NewContext(req, rec)
 	assert.NoError(t, queue.Logon(c))
 
-	reqUpgrade := vendor.ReqBodyUpgrade{}
-	reqUpgrade.Name = "vendor sample"
-	reqUpgrade.Caption = "caption sample"
-	reqUpgrade.Ticks = 1592619000
-	base64Encoded = defs.Encode(reqUpgrade, reqUpgrade.Ticks)
+	reqUpdate := vendor.ReqBodyUpdate{}
+	reqUpdate.Name = "vendor sample"
+	reqUpdate.Caption = "caption sample"
+        reqUpdate.RequireInitQueue = true // nouse
+        reqUpdate.RequireAdmit = false
+	reqUpdate.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpdate, reqUpdate.Ticks)
 	urlEncoded = url.QueryEscape(base64Encoded)
 	req = httptest.NewRequest(http.MethodPost, "/on/vendor/upgrade", strings.NewReader(urlEncoded))
 	rec = httptest.NewRecorder()
@@ -102,17 +104,20 @@ func TestEnqueueNoRequireAdmit(t *testing.T) {
 	c = e.NewContext(req, rec)
 	authCtx := &defs.AuthContext{ c, 1 }
 	assert.NoError(t, vendor.Upgrade(authCtx))
-        resUpgrade := vendor.ResBodyUpgrade{}
+        resUpdate := vendor.ResBodyUpdate{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
-        defs.Decode(bodyBytes, &resUpgrade, resUpgrade.Ticks);
+        defs.Decode(bodyBytes, &resUpdate, resUpdate.Ticks);
+	vendorCode := resUpdate.VendorCode
 
-	// new queue no require admit
-        reqInitQueue := vendor.ReqBodyInitQueue{}
-        reqInitQueue.RequireAdmit = false
-        reqInitQueue.Ticks = 1592619000
-        base64Encoded = defs.Encode(reqInitQueue, reqInitQueue.Ticks)
-        urlEncoded = url.QueryEscape(base64Encoded)
-	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue/new", strings.NewReader(urlEncoded))
+	reqUpdate = vendor.ReqBodyUpdate{}
+	reqUpdate.Name = "vendor sample2"
+	reqUpdate.Caption = "caption sample2"
+        reqUpdate.RequireInitQueue = true
+        reqUpdate.RequireAdmit = false
+	reqUpdate.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpdate, reqUpdate.Ticks)
+	urlEncoded = url.QueryEscape(base64Encoded)
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/update", strings.NewReader(urlEncoded))
 	rec = httptest.NewRecorder()
 	req.Header.Set("User-Agent", "vQL-Client")
 	req.Header.Set("Platform", "Windows")
@@ -121,14 +126,14 @@ func TestEnqueueNoRequireAdmit(t *testing.T) {
 	req.Header.Set("Session", resCreate.SessionId)
 	c = e.NewContext(req, rec)
 	authCtx = &defs.AuthContext{ c, 1 }
-	assert.NoError(t, vendor.InitQueue(authCtx))
-        resInitQueue := vendor.ResBodyInitQueue{}
+	assert.NoError(t, vendor.Update(authCtx))
+        resUpdate = vendor.ResBodyUpdate{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
-        defs.Decode(bodyBytes, &resInitQueue, resInitQueue.Ticks);
+        defs.Decode(bodyBytes, &resUpdate, resUpdate.Ticks);
 
         reqEnqueue := queue.ReqBodyEnqueue{}
-        reqEnqueue.VendorCode = resUpgrade.VendorCode
-        reqEnqueue.QueueCode = resInitQueue.QueueCode
+        reqEnqueue.VendorCode = vendorCode
+        reqEnqueue.QueueCode = resUpdate.QueueCode
         reqEnqueue.Ticks = 1592619000
         base64Encoded = defs.Encode(reqEnqueue, reqEnqueue.Ticks)
         urlEncoded = url.QueryEscape(base64Encoded)
@@ -181,8 +186,8 @@ func TestEnqueueNoRequireAdmit(t *testing.T) {
 	assert.NoError(t, vendor.EnqueueDummy(authCtx))
 
 	// show queue
-        vendorCodeUrlUnsafed := resUpgrade.VendorCode
-        queueCodeUrlUnsafed := resInitQueue.QueueCode
+        vendorCodeUrlUnsafed := vendorCode
+        queueCodeUrlUnsafed := resUpdate.QueueCode
         r := strings.NewReplacer("=", "-", "/", "_", "+", ".")
         vendorCodeUrlSafed := r.Replace(vendorCodeUrlUnsafed)
         queueCodeUrlSafed := r.Replace(queueCodeUrlUnsafed)
@@ -296,11 +301,13 @@ func TestEnqueueRequireAdmitPolite(t *testing.T) {
 	c = e.NewContext(req, rec)
 	assert.NoError(t, queue.Logon(c))
 
-	reqUpgrade := vendor.ReqBodyUpgrade{}
-	reqUpgrade.Name = "vendor sample"
-	reqUpgrade.Caption = "caption sample"
-	reqUpgrade.Ticks = 1592619000
-	base64Encoded = defs.Encode(reqUpgrade, reqUpgrade.Ticks)
+	reqUpdate := vendor.ReqBodyUpdate{}
+	reqUpdate.Name = "vendor sample"
+	reqUpdate.Caption = "caption sample"
+        reqUpdate.RequireInitQueue = true // nouse
+        reqUpdate.RequireAdmit = true
+	reqUpdate.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpdate, reqUpdate.Ticks)
 	urlEncoded = url.QueryEscape(base64Encoded)
 	req = httptest.NewRequest(http.MethodPost, "/on/vendor/upgrade", strings.NewReader(urlEncoded))
 	rec = httptest.NewRecorder()
@@ -312,17 +319,20 @@ func TestEnqueueRequireAdmitPolite(t *testing.T) {
 	c = e.NewContext(req, rec)
 	authCtx := &defs.AuthContext{ c, 1 }
 	assert.NoError(t, vendor.Upgrade(authCtx))
-        resUpgrade := vendor.ResBodyUpgrade{}
+        resUpdate := vendor.ResBodyUpdate{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
-        defs.Decode(bodyBytes, &resUpgrade, resUpgrade.Ticks);
+        defs.Decode(bodyBytes, &resUpdate, resUpdate.Ticks);
+	vendorCode := resUpdate.VendorCode
 
-	// new queue require admit
-        reqInitQueue := vendor.ReqBodyInitQueue{}
-        reqInitQueue.RequireAdmit = true
-        reqInitQueue.Ticks = 1592619000
-        base64Encoded = defs.Encode(reqInitQueue, reqInitQueue.Ticks)
-        urlEncoded = url.QueryEscape(base64Encoded)
-	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue/new", strings.NewReader(urlEncoded))
+	reqUpdate = vendor.ReqBodyUpdate{}
+	reqUpdate.Name = "vendor sample2"
+	reqUpdate.Caption = "caption sample2"
+        reqUpdate.RequireInitQueue = true
+        reqUpdate.RequireAdmit = true
+	reqUpdate.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpdate, reqUpdate.Ticks)
+	urlEncoded = url.QueryEscape(base64Encoded)
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/update", strings.NewReader(urlEncoded))
 	rec = httptest.NewRecorder()
 	req.Header.Set("User-Agent", "vQL-Client")
 	req.Header.Set("Platform", "Windows")
@@ -331,14 +341,14 @@ func TestEnqueueRequireAdmitPolite(t *testing.T) {
 	req.Header.Set("Session", resCreate.SessionId)
 	c = e.NewContext(req, rec)
 	authCtx = &defs.AuthContext{ c, 1 }
-	assert.NoError(t, vendor.InitQueue(authCtx))
-        resInitQueue := vendor.ResBodyInitQueue{}
+	assert.NoError(t, vendor.Update(authCtx))
+        resUpdate = vendor.ResBodyUpdate{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
-        defs.Decode(bodyBytes, &resInitQueue, resInitQueue.Ticks);
+        defs.Decode(bodyBytes, &resUpdate, resUpdate.Ticks);
 
         reqEnqueue := queue.ReqBodyEnqueue{}
-        reqEnqueue.VendorCode = resUpgrade.VendorCode
-        reqEnqueue.QueueCode = resInitQueue.QueueCode
+        reqEnqueue.VendorCode = vendorCode
+        reqEnqueue.QueueCode = resUpdate.QueueCode
         reqEnqueue.Ticks = 1592619000
         base64Encoded = defs.Encode(reqEnqueue, reqEnqueue.Ticks)
         urlEncoded = url.QueryEscape(base64Encoded)
@@ -391,8 +401,8 @@ func TestEnqueueRequireAdmitPolite(t *testing.T) {
 	assert.NoError(t, vendor.EnqueueDummy(authCtx))
 
 	// show queue
-        vendorCodeUrlUnsafed := resUpgrade.VendorCode
-        queueCodeUrlUnsafed := resInitQueue.QueueCode
+        vendorCodeUrlUnsafed := vendorCode
+        queueCodeUrlUnsafed := resUpdate.QueueCode
         r := strings.NewReplacer("=", "-", "/", "_", "+", ".")
         vendorCodeUrlSafed := r.Replace(vendorCodeUrlUnsafed)
         queueCodeUrlSafed := r.Replace(queueCodeUrlUnsafed)
@@ -507,11 +517,13 @@ func TestEnqueueRequireAdmitForce(t *testing.T) {
 	c = e.NewContext(req, rec)
 	assert.NoError(t, queue.Logon(c))
 
-	reqUpgrade := vendor.ReqBodyUpgrade{}
-	reqUpgrade.Name = "vendor sample"
-	reqUpgrade.Caption = "caption sample"
-	reqUpgrade.Ticks = 1592619000
-	base64Encoded = defs.Encode(reqUpgrade, reqUpgrade.Ticks)
+	reqUpdate := vendor.ReqBodyUpdate{}
+	reqUpdate.Name = "vendor sample"
+	reqUpdate.Caption = "caption sample"
+        reqUpdate.RequireInitQueue = true // nouse
+        reqUpdate.RequireAdmit = true
+	reqUpdate.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpdate, reqUpdate.Ticks)
 	urlEncoded = url.QueryEscape(base64Encoded)
 	req = httptest.NewRequest(http.MethodPost, "/on/vendor/upgrade", strings.NewReader(urlEncoded))
 	rec = httptest.NewRecorder()
@@ -523,17 +535,20 @@ func TestEnqueueRequireAdmitForce(t *testing.T) {
 	c = e.NewContext(req, rec)
 	authCtx := &defs.AuthContext{ c, 1 }
 	assert.NoError(t, vendor.Upgrade(authCtx))
-        resUpgrade := vendor.ResBodyUpgrade{}
+        resUpdate := vendor.ResBodyUpdate{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
-        defs.Decode(bodyBytes, &resUpgrade, resUpgrade.Ticks);
+        defs.Decode(bodyBytes, &resUpdate, resUpdate.Ticks);
+	vendorCode := resUpdate.VendorCode
 
-	// new queue require admit
-        reqInitQueue := vendor.ReqBodyInitQueue{}
-        reqInitQueue.RequireAdmit = true
-        reqInitQueue.Ticks = 1592619000
-        base64Encoded = defs.Encode(reqInitQueue, reqInitQueue.Ticks)
-        urlEncoded = url.QueryEscape(base64Encoded)
-	req = httptest.NewRequest(http.MethodPost, "/on/vendor/queue/new", strings.NewReader(urlEncoded))
+	reqUpdate = vendor.ReqBodyUpdate{}
+	reqUpdate.Name = "vendor sample2"
+	reqUpdate.Caption = "caption sample2"
+        reqUpdate.RequireInitQueue = true
+        reqUpdate.RequireAdmit = true
+	reqUpdate.Ticks = 1592619000
+	base64Encoded = defs.Encode(reqUpdate, reqUpdate.Ticks)
+	urlEncoded = url.QueryEscape(base64Encoded)
+	req = httptest.NewRequest(http.MethodPost, "/on/vendor/update", strings.NewReader(urlEncoded))
 	rec = httptest.NewRecorder()
 	req.Header.Set("User-Agent", "vQL-Client")
 	req.Header.Set("Platform", "Windows")
@@ -542,14 +557,14 @@ func TestEnqueueRequireAdmitForce(t *testing.T) {
 	req.Header.Set("Session", resCreate.SessionId)
 	c = e.NewContext(req, rec)
 	authCtx = &defs.AuthContext{ c, 1 }
-	assert.NoError(t, vendor.InitQueue(authCtx))
-        resInitQueue := vendor.ResBodyInitQueue{}
+	assert.NoError(t, vendor.Update(authCtx))
+        resUpdate = vendor.ResBodyUpdate{}
         bodyBytes, _ = ioutil.ReadAll(rec.Body)
-        defs.Decode(bodyBytes, &resInitQueue, resInitQueue.Ticks);
+        defs.Decode(bodyBytes, &resUpdate, resUpdate.Ticks);
 
         reqEnqueue := queue.ReqBodyEnqueue{}
-        reqEnqueue.VendorCode = resUpgrade.VendorCode
-        reqEnqueue.QueueCode = resInitQueue.QueueCode
+        reqEnqueue.VendorCode = vendorCode
+        reqEnqueue.QueueCode = resUpdate.QueueCode
         reqEnqueue.Ticks = 1592619000
         base64Encoded = defs.Encode(reqEnqueue, reqEnqueue.Ticks)
         urlEncoded = url.QueryEscape(base64Encoded)
@@ -602,8 +617,8 @@ func TestEnqueueRequireAdmitForce(t *testing.T) {
 	assert.NoError(t, vendor.EnqueueDummy(authCtx))
 
 	// show queue
-        vendorCodeUrlUnsafed := resUpgrade.VendorCode
-        queueCodeUrlUnsafed := resInitQueue.QueueCode
+        vendorCodeUrlUnsafed := vendorCode
+        queueCodeUrlUnsafed := resUpdate.QueueCode
         r := strings.NewReplacer("=", "-", "/", "_", "+", ".")
         vendorCodeUrlSafed := r.Replace(vendorCodeUrlUnsafed)
         queueCodeUrlSafed := r.Replace(queueCodeUrlUnsafed)
