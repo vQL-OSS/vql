@@ -61,7 +61,7 @@ create_table_domain(){
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
 }
 
-create_table_vendor_auth(){
+create_table_auth(){
   query="use ${1};create table if not exists auth (
     id                  bigint unsigned not null,
     identifier_type     tinyint unsigned not null,
@@ -72,13 +72,34 @@ create_table_vendor_auth(){
     ticks               bigint unsigned not null,
     private_code        varbinary(256) not null,
     account_type        tinyint unsigned not null,
+    agreement_ver       smallint unsigned not null,
+    agreement_time      datetime not null,
+    activate            boolean not null,
+    activate_type       tinyint unsigned not null,
+    activate_keyword    varchar(128) not null,
+    activate_time       datetime not null,
     session_id          varbinary(256) not null,
     session_private     varbinary(256) not null,
     session_footprint   datetime not null,
     delete_flag         tinyint unsigned not null,
     create_at           datetime not null,
     update_at           datetime not null,
-    unique (identifier, seed)
+    unique (identifier, seed),
+    primary key (id)
+  ) engine=innodb;
+"
+  ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
+}
+
+create_table_subscription(){
+  query="use ${1};create table if not exists subscription (
+    id                  bigint unsigned not null,
+    subscription_type   tinyint unsigned not null,
+    subscription_expire datetime not null,
+    delete_flag         tinyint unsigned not null,
+    create_at           datetime not null,
+    update_at           datetime not null,
+    primary key (id)
   ) engine=innodb;
 "
   ${DRYRUN} ${DBCLIENT} -u${DBUSER} -h${DBADDR} -p${DBPASS} -e "${query}"
@@ -115,7 +136,8 @@ if [ "x${PRODUCTION}" = "x0" ];then
   grant_all_db ${GOTESTPREFIX}_master ${CREATE_OPUSER} || die "error grant all db ${GOTESTPREFIX}_master"
 fi
 create_table_domain ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
-create_table_vendor_auth ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
+create_table_auth ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
+create_table_subscription ${DBPREFIX}_master || die "erro create table vendor ${DBPREFIX}_master"
 
 for suffix in `seq -w ${NUM_START} ${NUM_END}`
 do

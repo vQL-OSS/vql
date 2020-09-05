@@ -109,7 +109,12 @@ func Setup() error {
 	}
 	defer stmt.Close()
 	_, err = stmt.Exec()
-	stmt, err = tx.Preparex(CreateVendorAuthQuery())
+	stmt, err = tx.Preparex(CreateAuthQuery())
+	if err != nil {
+		return err
+	}
+	_, err = stmt.Exec()
+	stmt, err = tx.Preparex(CreateSubscriptionQuery())
 	if err != nil {
 		return err
 	}
@@ -341,7 +346,7 @@ type Domain struct {
 }
 
 // Create table auth query string
-func CreateVendorAuthQuery() string {
+func CreateAuthQuery() string {
 	query := `
 create table auth (
     id			bigint unsigned not null,
@@ -353,19 +358,26 @@ create table auth (
     ticks		bigint unsigned not null,
     private_code	varbinary(256) not null,
     account_type	tinyint unsigned not null,
+    agreement_ver	smallint unsigned not null,
+    agreement_time	datetime not null,
+    activate		boolean not null,
+    activate_type	tinyint unsigned not null,
+    activate_keyword	varchar(128) not null,
+    activate_time	datetime not null,
     session_id          varbinary(256) not null,
     session_private     varbinary(256) not null,
     session_footprint   datetime not null,
     delete_flag		tinyint unsigned not null,
     create_at		datetime not null,
     update_at		datetime not null,
+    primary key (id),
     unique (identifier, seed)
   ) engine=innodb;`
 	return query
 }
 
 // Drop table auth query string
-func DropVendorAuthQuery() string {
+func DropAuthQuery() string {
 	query := `
 drop table auth;`
 	return query
@@ -381,12 +393,51 @@ type Auth struct {
 	Secret           string
 	PrivateCode      []byte    `db:"private_code"`
 	AccountType      uint8     `db:"account_type"`
+	AgreementVer     uint16    `db:"agreement_ver"`
+	AgreementTime    time.Time `db:"agreement_time"`
+	Activate         bool
+	ActivateType     uint8     `db:"activate_type"`
+	ActivateKeyword  string    `db:"activate_keyword"`
+	ActivateTime     time.Time `db:"activate_time"`
 	SessionId        string    `db:"session_id"`
 	SessionPrivate   string    `db:"session_private"`
 	SessionFootprint time.Time `db:"session_footprint"`
 	DeleteFlag       uint8     `db:"delete_flag"`
 	CreateAt         time.Time `db:"create_at"`
 	UpdateAt         time.Time `db:"update_at"`
+}
+
+
+// Create table subscription query string
+func CreateSubscriptionQuery() string {
+        query := `
+create table subscription (
+    id                  bigint unsigned not null,
+    subscription_type   tinyint unsigned not null,
+    subscription_expire datetime not null,
+    delete_flag         tinyint unsigned not null,
+    create_at           datetime not null,
+    update_at           datetime not null,
+    primary key (id)
+  ) engine=innodb;`
+        return query
+}
+
+// Drop table subscription query string
+func DropSubscriptionQuery() string {
+        query := `
+drop table subscription;`
+        return query
+}
+
+// Subscription table adaptor struct
+type Subscription struct {
+        Id               uint64
+        SubscriptionType uint8     `db:"subscription_type"`
+        SubscriptionExpire time.Time `db:"subscription_expire"`
+        DeleteFlag       uint8     `db:"delete_flag"`
+        CreateAt         time.Time `db:"create_at"`
+        UpdateAt         time.Time `db:"update_at"`
 }
 
 // Create table summary query string

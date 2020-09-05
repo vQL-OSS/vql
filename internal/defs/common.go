@@ -110,6 +110,7 @@ const (
 	ResponseNgUserAlreadyPushOff  = 703 // ng, user already push off.
 	ResponseNgUserCannotPending   = 704 // ng, this is end. cannot more pending.
 	ResponseNgUserAlreadyCanceled = 705 // ng, already canceled by user.
+	ResponseNgUserAlreadyEnqueue  = 706 // ng, already enqueue duplicate access.
 	// UserDequeueAuth XX8XX
 	ResponseNgUserCannotAuthDequeue = 800 // ng, vendor dequeue auth not executed on time, dequeue auth failed.
 	ResponseNgUserDequeueFailed     = 801 // ng, dequeue failed.
@@ -172,6 +173,7 @@ var responseCodeText = map[ResponseCode]string{
 	ResponseNgUserAlreadyPushOff:                "ResponseNgUserAlreadyPushOff",
 	ResponseNgUserCannotPending:                 "ResponseNgUserCannotPending",
 	ResponseNgUserAlreadyCanceled:               "ResponseNgUserAlreadyCanceled",
+	ResponseNgUserAlreadyEnqueue:                "ResponseNgUserAlreadyEnqueue",
 	ResponseNgUserCannotAuthDequeue:             "ResponseNgUserCannotAuthDequeue",
 	ResponseNgUserDequeueFailed:                 "ResponseNgUserDequeueFailed",
 	ResponseNgUserAuthLacked:                    "ResponseNgUserAuthLacked",
@@ -183,8 +185,33 @@ type AccountType uint8
 
 const (
 	NormalUser                    AccountType = 0  // normal user
-	LimitedVendor                             = 1  // limited vendor user
-	UnlimitedVendor                           = 2  // unlimited vendor user
+	VendorUser                                = 1  // limited vendor user
+)
+
+type ActivateType uint8
+
+const (
+	PhoneAuth                     ActivateType = 0  // phone auth
+	EmailAuth                                  = 1  // email auth
+)
+
+type SubscriptionType uint8
+
+const (
+	FreePlan                      SubscriptionType = 0  // free plan
+	ProPlan                                        = 1  // professional plan
+	EntPlan                                        = 2  // enterprise plan
+)
+
+const RequireAgreementVersion = 1
+
+type QueueStatus uint8
+
+const (
+	StatusPrepare                       QueueStatus = 0
+	StatusEnqueue                                   = 1
+	StatusDequeue                                   = 2
+	StatusCancel                                    = 3
 )
 
 type AuthContext struct {

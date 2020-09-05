@@ -183,7 +183,7 @@ func Upgrade(c echo.Context) error {
 	if _, err = db.TxPreparexExec(tx3, "update domain set shard = ?, update_at = utc_timestamp() where id = ?", assigned_shard, vendorId); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx3)))
 	}
-	if _, err = db.TxPreparexExec(tx3, "update auth set account_type = ?, update_at = utc_timestamp() where id = ?", defs.LimitedVendor, vendorId); err != nil {
+	if _, err = db.TxPreparexExec(tx3, "update auth set account_type = ?, update_at = utc_timestamp() where id = ?", defs.VendorUser, vendorId); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx3)))
 	}
 	if err := tx3.Commit(); err != nil {
@@ -338,18 +338,18 @@ func Manage(c echo.Context) error {
 	var queingTotal int
 	var name string
 
-	if err = db.PreparexGet(shard, "select name from summary_" + db.ToSuffix(vendorId) + " where id = 1",
+	if err = db.PreparexGet(shard, "select name from summary_"+db.ToSuffix(vendorId)+" where id = 1",
 		&name); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 	if err = db.PreparexGet(shard, `select count(1) from queue_`+db.ToSuffix(vendorId)+
-		` where to_base64(queue_code) = ? and delete_flag = 0`,
-		&total, queueCode); err != nil {
+		` where to_base64(queue_code) = ? and status != ? and delete_flag = 0`,
+		&total, queueCode, defs.StatusCancel); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 	if err = db.PreparexGet(shard, `select count(1) from queue_`+db.ToSuffix(vendorId)+
-		` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0`,
-		&queingTotal, queueCode); err != nil {
+		` where to_base64(queue_code) = ? and status = ? and delete_flag = 0`,
+		&queingTotal, queueCode, defs.StatusEnqueue); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 	if err = db.PreparexSelect(shard, `select keycode_prefix, status from queue_`+db.ToSuffix(vendorId)+
@@ -434,13 +434,13 @@ func ShowQueue(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 	if err = db.PreparexGet(shard, `select count(1) from queue_`+db.ToSuffix(vendorId)+
-		` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0`,
-		&queingTotal, queueCode); err != nil {
+		` where to_base64(queue_code) = ? and status = ? and delete_flag = 0`,
+		&queingTotal, queueCode, defs.StatusEnqueue); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 	if err = db.PreparexSelect(shard, `select keycode_prefix, status from queue_`+db.ToSuffix(vendorId)+
-		` where to_base64(queue_code) = ? and status = 1 and delete_flag = 0 limit ? offset ?`,
-		&results, queueCode, limitSize, startIndex); err != nil {
+		` where to_base64(queue_code) = ? and status = ? and delete_flag = 0 limit ? offset ?`,
+		&results, queueCode, defs.StatusEnqueue, limitSize, startIndex); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
 	}
 
@@ -448,6 +448,48 @@ func ShowQueue(c echo.Context) error {
 	response.Total = total
 	response.QueingTotal = queingTotal
 	response.Rows = results
+	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
+}
+
+// Manage vendor user response body struct
+type ResBodyDetail struct {
+	Name    string `json:"Name"`
+	Caption string `json:"Caption"`
+	defs.ResponseBodyBase
+}
+
+// Manage vendor db result struct
+type DetailResult struct {
+	Name    string `db:"name"`
+	Caption string `db:"caption"`
+}
+
+// Get detail vendor user
+func Detail(c echo.Context) error {
+	var err error
+	authCtx := c.(*defs.AuthContext)
+	response := ResBodyDetail{}
+	response.ResponseCode = defs.ResponseOk
+	response.Ticks = time.Now().Unix()
+	_, err = strconv.ParseInt(c.Request().Header.Get("IV"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTicksInvalid, true, err))
+	}
+
+	vendorId := authCtx.Uid
+	shard, err := db.Conns.Shard(vendorId)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
+	}
+	result := DetailResult{}
+	if err = db.PreparexGet(shard, "select name, caption from summary_"+db.ToSuffix(vendorId)+" where id = 1",
+		&result); err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, err))
+	}
+
+	c.Echo().Logger.Debug("vendor detail")
+	response.Name = result.Name
+	response.Caption = result.Caption
 	return c.String(http.StatusOK, defs.Encode(response, response.Ticks))
 }
 
@@ -496,13 +538,13 @@ func Dequeue(c echo.Context) error {
 	if request.Force {
 		if result, err = db.TxPreparexExec(tx, `update queue_`+db.ToSuffix(vendorId)+
 			` set status = ?, update_at = utc_timestamp() where keycode_prefix = ?`,
-			2, request.KeyCodePrefix); err != nil {
+			defs.StatusDequeue, request.KeyCodePrefix); err != nil {
 			return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 		}
 	} else {
 		if result, err = db.TxPreparexExec(tx, `update queue_`+db.ToSuffix(vendorId)+
 			` set status = ?, update_at = utc_timestamp() where keycode_prefix = ? and keycode_suffix = ?`,
-			2, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
+			defs.StatusDequeue, request.KeyCodePrefix, request.KeyCodeSuffix); err != nil {
 			return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 		}
 	}
@@ -550,6 +592,11 @@ func EnqueueDummy(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgShardConnectFailed, true, err))
 	}
 
+	keyCodeSuffix, err := defs.NewKeyCodeSuffix()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgHashGenerateFailed, true, err))
+	}
+
 	var tx *sqlx.Tx
 	if tx, err = shard.Beginx(); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgTransactBeginFailed, true, db.RollbackResolve(err, tx)))
@@ -570,14 +617,14 @@ func EnqueueDummy(c echo.Context) error {
                 queue_code, uid, keycode_prefix, keycode_suffix, mail_addr, mail_count,
                 push_type, push_count, status, delete_flag, create_at, update_at
         ) values (
-                from_base64(?), ?, cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), "suffix_test", "", 0, 0, 0, 1, 0, utc_timestamp(), utc_timestamp()
-        )`, queueCodeBase64, authCtx.Uid); err != nil {
+                from_base64(?), ?, cast(nextseq_`+db.ToSuffix(vendorId)+`("NUM") as char), ?, "", 0, 0, 0, ?, 0, utc_timestamp(), utc_timestamp()
+        )`, queueCodeBase64, authCtx.Uid, keyCodeSuffix, defs.StatusEnqueue); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
 	if err = db.TxPreparexGet(tx, `select id, keycode_prefix, keycode_suffix from queue_`+db.ToSuffix(vendorId)+
-		` where to_base64(queue_code) = ? and uid = ? and status = 1 and delete_flag = 0  limit 1`,
-		&result, queueCodeBase64, authCtx.Uid); err != nil {
+		` where to_base64(queue_code) = ? and uid = ? and status = ? and delete_flag = 0  limit 1`,
+		&result, queueCodeBase64, authCtx.Uid, defs.StatusEnqueue); err != nil {
 		return c.String(http.StatusInternalServerError, defs.ErrorDispose(c, &response, defs.ResponseNgQueryExecuteFailed, true, db.RollbackResolve(err, tx)))
 	}
 
